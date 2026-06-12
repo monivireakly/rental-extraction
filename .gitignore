@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 *.pyo
 .DS_Store
+.env.example
+*.session
+*.session-journal

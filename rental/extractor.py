@@ -1,7 +1,8 @@
 import json
 import logging
 import anthropic
-from prompts.extraction import EXTRACTION_PROMPT
+from .config import settings
+from .prompts.extraction import EXTRACTION_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +12,7 @@ _client = None
 def _get_client():
     global _client
     if _client is None:
-        _client = anthropic.Anthropic()
+        _client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     return _client
 
 
@@ -27,6 +28,11 @@ def extract_listing(raw_text):
     )
     response_text = message.content[0].text.strip()
     logger.info("Raw extraction response: %s", response_text)
+
+    # Strip markdown code fences if the model returns them despite instructions
+    if response_text.startswith("```"):
+        response_text = response_text.split("\n", 1)[-1]
+        response_text = response_text.rsplit("```", 1)[0].strip()
 
     try:
         data = json.loads(response_text)
