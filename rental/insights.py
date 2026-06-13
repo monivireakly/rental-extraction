@@ -255,8 +255,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14
 .hdr-pill .l{font-size:10px;font-weight:600;color:rgba(255,255,255,.45);
              text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
 .hdr-date{
-  position:absolute;top:52px;right:0;
-  font-size:11px;color:rgba(255,255,255,.3);text-align:right;
+  font-size:11px;color:rgba(255,255,255,.3);margin-top:14px;
 }
 
 /* ── Main ── */
@@ -317,16 +316,17 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14
 }
 .ftr strong{color:var(--mid)}
 
-/* ── Export button ── */
+/* ── Export button (fixed, never overlaps content) ── */
 .export-btn{
-  position:absolute;top:52px;right:0;
+  position:fixed;top:20px;right:24px;z-index:9999;
   display:inline-flex;align-items:center;gap:8px;
-  background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);
+  background:#1D4ED8;border:1px solid #3B82F6;
   color:#fff;font-family:var(--font);font-size:12px;font-weight:600;
-  padding:9px 18px;border-radius:8px;cursor:pointer;
-  transition:background .15s,transform .1s;letter-spacing:.02em;
+  padding:10px 18px;border-radius:8px;cursor:pointer;
+  box-shadow:0 4px 16px rgba(29,78,216,.35);
+  transition:background .15s,transform .1s,box-shadow .15s;letter-spacing:.02em;
 }
-.export-btn:hover{background:rgba(255,255,255,.22);transform:translateY(-1px)}
+.export-btn:hover{background:#1e40af;transform:translateY(-1px);box-shadow:0 6px 20px rgba(29,78,216,.45)}
 .export-btn:active{transform:translateY(0)}
 .export-btn svg{width:14px;height:14px;flex-shrink:0}
 
@@ -334,14 +334,18 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14
   .kpi-row{grid-template-columns:repeat(2,1fr)}
   .g21,.g211,.g3{grid-template-columns:1fr}
   .main,.hdr{padding-left:20px;padding-right:20px}
-  .export-btn{position:static;margin-top:20px}
 }
 
 @media print{
   .export-btn{display:none!important}
-  body{background:#fff}
-  .hdr{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .card,.heatmap-card{box-shadow:none;border:1px solid #E2E8F0}
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  body{background:#fff!important}
+  .hdr{background:linear-gradient(140deg,#0F0C29 0%,#1E1B4B 45%,#1D4ED8 100%)!important}
+  .card{box-shadow:none!important;border:1px solid #E2E8F0!important;break-inside:avoid}
+  .main{padding:20px!important}
+  .kpi-row{grid-template-columns:repeat(4,1fr)!important}
+  .g21{grid-template-columns:2fr 1fr!important}
+  .g211{grid-template-columns:2fr 1fr 1fr!important}
   @page{margin:.4in;size:A3 landscape}
 }
 </style>
@@ -356,15 +360,16 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14
     <p class="hdr-sub">Data-driven insights from Telegram listing channels — prices, districts, trends</p>
     <div class="hdr-pills" id="hdr-pills"></div>
     <div class="hdr-date" id="hdr-date"></div>
-    <button class="export-btn" onclick="window.print()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M6 9V2h12v7"/><rect x="6" y="14" width="12" height="8" rx="1"/>
-        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
-      </svg>
-      Save as PDF
-    </button>
   </div>
 </header>
+
+<button class="export-btn" onclick="window.print()">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 9V2h12v7"/><rect x="6" y="14" width="12" height="8" rx="1"/>
+    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+  </svg>
+  Save as PDF
+</button>
 
 <main class="main">
 
@@ -509,7 +514,14 @@ const axXV = () => ({
   splitLine:{lineStyle:{color:'#F8FAFC',type:'dashed'}},
 });
 const grid = (t=16,r=16,b=36,l=48) => ({top:t,right:r,bottom:b,left:l,containLabel:true});
-function ec(id){ return echarts.init(document.getElementById(id),null,{renderer:'svg'}); }
+const _charts = [];
+function ec(id){
+  const c = echarts.init(document.getElementById(id),null,{renderer:'svg'});
+  _charts.push(c);
+  return c;
+}
+window.addEventListener('beforeprint',()=>_charts.forEach(c=>c.resize()));
+window.addEventListener('afterprint', ()=>_charts.forEach(c=>c.resize()));
 
 // ── 1. Rent histogram ─────────────────────────────────────────────────────
 (function(){
