@@ -540,11 +540,8 @@ function ec(id){ return echarts.init(document.getElementById(id),null,{renderer:
       itemStyle:{borderRadius:[5,5,0,0], color:p=>ROOM_PAL[p.dataIndex]},
       label:{
         show:true, position:'top',
-        formatter:p=>{
-          const i=p.dataIndex;
-          return R.avgs[i]!=null ? `$${R.avgs[i].toLocaleString()}\nn=${R.counts[i]}` : '';
-        },
-        color:C.MID, fontSize:10, fontWeight:'600', lineHeight:16,
+        formatter:p=>R.avgs[p.dataIndex]!=null ? `$${R.avgs[p.dataIndex].toLocaleString()}` : '',
+        color:C.MID, fontSize:10, fontWeight:'600',
       },
     }],
   });
