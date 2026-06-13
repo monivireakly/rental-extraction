@@ -13,6 +13,10 @@ _EXTRACTION_TOOL = {
     "input_schema": {
         "type": "object",
         "properties": {
+            "listing_type": {
+                "type": "string",
+                "enum": ["rent", "sale"],
+            },
             "property_type": {
                 "type": "string",
                 "enum": ["Apartment", "Condo", "Service Apartment", "Borey", "Villa", "Shophouse", "Studio"],

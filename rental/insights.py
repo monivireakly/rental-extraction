@@ -40,13 +40,15 @@ def _extract():
     rows = conn.execute("""
         SELECT district, room_type, furnished_status, property_type,
                rent_usd, electricity_per_kwh, extraction_confidence,
-               needs_review, posted_at
+               needs_review, posted_at, listing_type
         FROM listings
     """).fetchall()
     conn.close()
 
     records = []
     for r in rows:
+        if r["listing_type"] == "sale":
+            continue
         room = normalise_room(r["room_type"])
         if room and room not in ("Studio", "1BR", "2BR", "3BR"):
             room = "4BR+"
@@ -83,18 +85,21 @@ def _extract():
     pcts = {k: int(np.percentile(rents, v)) for k, v in
             [("p10",10),("p25",25),("p50",50),("p75",75),("p90",90)]} if rents else {}
 
-    # Room type averages + std
-    rv = {r: [d["rent"] for d in records if d["room"] == r and d["rent"]] for r in ROOM_ORDER}
+    # Room type averages + std — same $4,500 cap as the histogram to exclude KHR outliers
+    def _valid_rent(d):
+        return d["rent"] and 0 < d["rent"] < 4500
+
+    rv = {r: [d["rent"] for d in records if d["room"] == r and _valid_rent(d)] for r in ROOM_ORDER}
 
     # Furnished premium (grouped bar)
-    fp_full    = [int(np.mean([d["rent"] for d in records if d["room"]==r and d["furnished"]=="Full"    and d["rent"]]) or 0)
-                  if any(d["room"]==r and d["furnished"]=="Full"    and d["rent"] for d in records) else None
+    fp_full    = [int(np.mean([d["rent"] for d in records if d["room"]==r and d["furnished"]=="Full"    and _valid_rent(d)]) or 0)
+                  if any(d["room"]==r and d["furnished"]=="Full"    and _valid_rent(d) for d in records) else None
                   for r in ROOM_ORDER]
-    fp_partial = [int(np.mean([d["rent"] for d in records if d["room"]==r and d["furnished"]=="Partial" and d["rent"]]) or 0)
-                  if any(d["room"]==r and d["furnished"]=="Partial" and d["rent"] for d in records) else None
+    fp_partial = [int(np.mean([d["rent"] for d in records if d["room"]==r and d["furnished"]=="Partial" and _valid_rent(d)]) or 0)
+                  if any(d["room"]==r and d["furnished"]=="Partial" and _valid_rent(d) for d in records) else None
                   for r in ROOM_ORDER]
-    fp_none    = [int(np.mean([d["rent"] for d in records if d["room"]==r and d["furnished"] is None    and d["rent"]]) or 0)
-                  if any(d["room"]==r and d["furnished"] is None    and d["rent"] for d in records) else None
+    fp_none    = [int(np.mean([d["rent"] for d in records if d["room"]==r and d["furnished"] is None    and _valid_rent(d)]) or 0)
+                  if any(d["room"]==r and d["furnished"] is None    and _valid_rent(d) for d in records) else None
                   for r in ROOM_ORDER]
 
     # Electricity histogram

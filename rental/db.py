@@ -34,6 +34,7 @@ def _migrate(conn):
     add_if_missing("raw_listings", "posted_at",      "DATETIME")
     add_if_missing("listings",     "posted_at",      "DATETIME")
     add_if_missing("listings",     "property_type",  "TEXT")
+    add_if_missing("listings",     "listing_type",   "TEXT DEFAULT 'rent'")
     add_if_missing("channels",     "default_pages",  "INTEGER DEFAULT 3")
     conn.commit()
 
@@ -341,7 +342,8 @@ def init_db():
                 amenities_excluded    TEXT,
 
                 extraction_confidence REAL,
-                needs_review          INTEGER DEFAULT 0
+                needs_review          INTEGER DEFAULT 0,
+                listing_type          TEXT DEFAULT 'rent'
             );
 
             CREATE TABLE IF NOT EXISTS price_history (
@@ -490,8 +492,8 @@ def insert_listing(listing_id, listing_hash, data, posted_at=None):
                 rent_usd, management_fee_usd, electricity_per_kwh, water_per_m3,
                 car_parking_usd, motor_parking_usd,
                 amenities_included, amenities_excluded,
-                extraction_confidence, needs_review
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                extraction_confidence, needs_review, listing_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 listing_id, listing_hash, posted_at,
                 _ptype,
@@ -513,6 +515,7 @@ def insert_listing(listing_id, listing_hash, data, posted_at=None):
                 json.dumps(data["amenities_excluded"]) if data.get("amenities_excluded") is not None else None,
                 data.get("extraction_confidence"),
                 1 if data.get("needs_review") else 0,
+                data.get("listing_type", "rent"),
             ),
         )
         conn.execute(

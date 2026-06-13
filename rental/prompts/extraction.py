@@ -6,6 +6,7 @@ Return only the JSON object. No explanation. No commentary. No markdown fences.
 
 Output schema:
 {
+  "listing_type": "rent" or "sale",
   "property_type": "Apartment" or "Condo" or "Service Apartment" or "Borey" or "Villa" or "Shophouse" or "Studio" or null,
   "property_name": string or null,
   "unit_code": string or null,
@@ -28,6 +29,8 @@ Output schema:
 }
 
 Rules:
+- listing_type: "sale" if text contains for-sale/resale indicators — "for sale", "resale", "sale price", "លក់", "ដេញដូរ", "sell", "ขาย". Otherwise "rent".
+- If listing_type is "sale": set rent_usd to null and needs_review to true.
 - Numbers only for currency. Strip $, USD, ៛.
 - free or included means 0, not null.
 - null means not mentioned. Never guess.

@@ -14,7 +14,6 @@ Usage:
 """
 
 import argparse
-import json
 import logging
 import re
 import time
@@ -29,20 +28,101 @@ logger = logging.getLogger(__name__)
 
 _client = None
 
+# ── Tool definitions ──────────────────────────────────────────────────────────
+
+_RESEARCH_TOOL = {
+    "name": "research_building",
+    "description": "Return a structured property profile for the given Phnom Penh building.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "year_built":          {"type": ["integer", "null"]},
+            "developer":           {"type": ["string", "null"]},
+            "total_floors":        {"type": ["integer", "null"]},
+            "total_units":         {"type": ["integer", "null"]},
+            "building_type": {
+                "type": ["string", "null"],
+                "enum": ["Condo", "Serviced Apartment", "Borey", "Villa", "Commercial", None],
+            },
+            "amenities_summary":   {"type": ["string", "null"]},
+            "description":         {"type": "string"},
+            "research_confidence": {"type": "number"},
+        },
+        "required": ["description", "research_confidence"],
+    },
+}
+
+# Cached block — avoids re-tokenising the research prompt on every call (~80% token savings).
+_RESEARCH_SYSTEM = [
+    {
+        "type": "text",
+        "text": RESEARCH_PROMPT,
+        "cache_control": {"type": "ephemeral"},
+    }
+]
+
+_CLASSIFY_TOOL = {
+    "name": "classify_property",
+    "description": "Classify a Phnom Penh property name into the correct property type.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "property_type": {
+                "type": "string",
+                "enum": ["Apartment", "Condo", "Service Apartment", "Borey", "Villa", "Shophouse", "Studio"],
+            },
+        },
+        "required": ["property_type"],
+    },
+}
+
+_CLASSIFY_SYSTEM_BLOCK = [
+    {
+        "type": "text",
+        "text": (
+            "You are a Cambodia real estate property type classifier. "
+            "Given a property name, classify it into exactly one property type. "
+            "Rules: Most named residential towers in Phnom Penh are Condo or Apartment. "
+            "Use Borey only if the word Borey appears or it is clearly a gated housing estate. "
+            "Use Apartment for mid-rise rentals and named residences without condo branding. "
+            "Use Condo for high-rise units sold or rented with strata title."
+        ),
+        "cache_control": {"type": "ephemeral"},
+    }
+]
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+# Maps property_profiles.building_type → listings.property_type canonical values
+_BUILDING_TYPE_MAP = {
+    "condo":               "Condo",
+    "condominium":         "Condo",
+    "apartment":           "Apartment",
+    "serviced apartment":  "Service Apartment",
+    "service apartment":   "Service Apartment",
+    "borey":               "Borey",
+    "villa":               "Villa",
+    "shophouse":           "Shophouse",
+    "studio":              "Studio",
+}
+
+# Whole-word keyword patterns applied to property_name when no profile exists
+_NAME_KEYWORDS = [
+    (r"\bborey\b",        "Borey"),
+    (r"\bvilla\b",        "Villa"),
+    (r"\bshophouse\b",    "Shophouse"),
+    (r"\bserviced?\b",    "Service Apartment"),
+    (r"\bcondo\b",        "Condo"),
+    (r"\bcondominium\b",  "Condo"),
+    (r"\bstudio\b",       "Studio"),
+]
+
 
 def _get_client():
     global _client
     if _client is None:
         _client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     return _client
-
-
-def _strip_fences(text):
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[-1]
-        text = text.rsplit("```", 1)[0].strip()
-    return text
 
 
 def research_building(property_name, district, samples):
@@ -59,66 +139,28 @@ def research_building(property_name, district, samples):
     client = _get_client()
     message = client.messages.create(
         model="claude-haiku-4-5",
-        max_tokens=512,
-        system=RESEARCH_PROMPT,
+        max_tokens=1024,
+        system=_RESEARCH_SYSTEM,
+        tools=[_RESEARCH_TOOL],
+        tool_choice={"type": "tool", "name": "research_building"},
         messages=[{"role": "user", "content": user_message}],
     )
 
-    raw = _strip_fences(message.content[0].text)
-    logger.debug("Research response: %s", raw)
+    tool_block = next(
+        (b for b in message.content if b.type == "tool_use"),
+        None,
+    )
+    if tool_block is None:
+        raise ValueError(f"No tool_use block in response: {message.content}")
 
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError as e:
-        logger.error("JSON parse failed for %s: %s", property_name, e)
-        raise
-
-
-# Maps property_profiles.building_type → listings.property_type canonical values
-_BUILDING_TYPE_MAP = {
-    "condo":               "Condo",
-    "condominium":         "Condo",
-    "apartment":           "Apartment",
-    "serviced apartment":  "Service Apartment",
-    "service apartment":   "Service Apartment",
-    "borey":               "Borey",
-    "villa":               "Villa",
-    "shophouse":           "Shophouse",
-    "studio":              "Studio",
-}
-
-# Whole-word keyword patterns applied to property_name when no profile exists
-# Using word boundaries to avoid "villa" matching "village", etc.
-_NAME_KEYWORDS = [
-    (r"\bborey\b",        "Borey"),
-    (r"\bvilla\b",        "Villa"),
-    (r"\bshophouse\b",    "Shophouse"),
-    (r"\bserviced?\b",    "Service Apartment"),
-    (r"\bcondo\b",        "Condo"),
-    (r"\bcondominium\b",  "Condo"),
-    (r"\bstudio\b",       "Studio"),
-]
-
-_CLASSIFY_SYSTEM = (
-    "You are a Cambodia real estate property type classifier. "
-    "Given a property name, reply with exactly one word from: "
-    "Apartment, Condo, ServiceApartment, Borey, Villa, Shophouse, Studio. "
-    "Rules: Most named residential towers in Phnom Penh are Condo or Apartment. "
-    "Use Borey only if the word Borey appears or it is clearly a gated housing estate. "
-    "Use Apartment for mid-rise rentals and named residences without condo branding. "
-    "Use Condo for high-rise units sold or rented with strata title. "
-    "Reply with one word only. No explanation."
-)
-
-_CLASSIFY_MAP = {
-    "apartment":        "Apartment",
-    "condo":            "Condo",
-    "serviceapartment": "Service Apartment",
-    "borey":            "Borey",
-    "villa":            "Villa",
-    "shophouse":        "Shophouse",
-    "studio":           "Studio",
-}
+    data = tool_block.input
+    logger.info(
+        "Research done — %s | confidence=%.2f | cache_tokens=%s",
+        property_name,
+        data.get("research_confidence", 0),
+        getattr(message.usage, "cache_read_input_tokens", 0),
+    )
+    return data
 
 
 def _classify_by_name(name):
@@ -131,14 +173,21 @@ def _classify_by_name(name):
 
 def _classify_via_claude(name):
     client = _get_client()
-    msg = client.messages.create(
+    message = client.messages.create(
         model="claude-haiku-4-5",
-        max_tokens=10,
-        system=_CLASSIFY_SYSTEM,
+        max_tokens=20,
+        system=_CLASSIFY_SYSTEM_BLOCK,
+        tools=[_CLASSIFY_TOOL],
+        tool_choice={"type": "tool", "name": "classify_property"},
         messages=[{"role": "user", "content": name}],
     )
-    word = msg.content[0].text.strip().lower().replace(" ", "")
-    return _CLASSIFY_MAP.get(word, "Apartment")
+    tool_block = next(
+        (b for b in message.content if b.type == "tool_use"),
+        None,
+    )
+    if tool_block is None:
+        return "Apartment"
+    return tool_block.input.get("property_type", "Apartment")
 
 
 def backfill_property_type(dry_run=False):
@@ -158,6 +207,7 @@ def backfill_property_type(dry_run=False):
         btype    = row["building_type"]
         count    = row["listing_count"]
         source   = None
+        ptype    = None
 
         # 1. Use existing profile building_type
         if btype:
