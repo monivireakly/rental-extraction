@@ -197,12 +197,20 @@ def plot(data, monthly):
     bars_r = ax_room.bar(ROOM_ORDER, r_avg, color=ROOM_PAL, edgecolor="white", linewidth=0.7, zorder=3)
     ax_room.errorbar(ROOM_ORDER, r_avg, yerr=r_std, fmt="none", color=DARK,
                      capsize=4, linewidth=1.2, zorder=4)
-    for bar, avg_v, cnt in zip(bars_r, r_avg, r_cnt):
+    max_top = 0
+    for bar, avg_v, std_v, cnt in zip(bars_r, r_avg, r_std, r_cnt):
         if avg_v > 0:
-            ax_room.text(bar.get_x() + bar.get_width() / 2, avg_v + 25,
-                         f"${avg_v:.0f}\n({cnt})", ha="center", fontsize=7.5,
+            error_top = avg_v + std_v
+            max_top = max(max_top, error_top)
+            # dollar label above the error bar cap
+            ax_room.text(bar.get_x() + bar.get_width() / 2, error_top + 20,
+                         f"${avg_v:.0f}", ha="center", fontsize=8.5,
                          color=DARK, fontweight="bold", va="bottom")
-    ax_room.set_ylim(0, max(r_avg) * 1.3 if any(r_avg) else 1)
+            # sample count inside the bar
+            ax_room.text(bar.get_x() + bar.get_width() / 2, avg_v * 0.06,
+                         f"n={cnt}", ha="center", fontsize=7,
+                         color="white", va="bottom", alpha=0.9)
+    ax_room.set_ylim(0, max_top * 1.25 if max_top else 1)
     _style(ax_room, "Avg Rent by Room Type", "", "USD / month")
 
     # ── Row 1 col 3: Monthly volume trend ─────────────────────────────────────
