@@ -16,6 +16,7 @@ Usage:
 import argparse
 import json
 import logging
+import re
 import time
 
 import anthropic
@@ -71,6 +72,132 @@ def research_building(property_name, district, samples):
     except json.JSONDecodeError as e:
         logger.error("JSON parse failed for %s: %s", property_name, e)
         raise
+
+
+# Maps property_profiles.building_type → listings.property_type canonical values
+_BUILDING_TYPE_MAP = {
+    "condo":               "Condo",
+    "condominium":         "Condo",
+    "apartment":           "Apartment",
+    "serviced apartment":  "Service Apartment",
+    "service apartment":   "Service Apartment",
+    "borey":               "Borey",
+    "villa":               "Villa",
+    "shophouse":           "Shophouse",
+    "studio":              "Studio",
+}
+
+# Whole-word keyword patterns applied to property_name when no profile exists
+# Using word boundaries to avoid "villa" matching "village", etc.
+_NAME_KEYWORDS = [
+    (r"\bborey\b",        "Borey"),
+    (r"\bvilla\b",        "Villa"),
+    (r"\bshophouse\b",    "Shophouse"),
+    (r"\bserviced?\b",    "Service Apartment"),
+    (r"\bcondo\b",        "Condo"),
+    (r"\bcondominium\b",  "Condo"),
+    (r"\bstudio\b",       "Studio"),
+]
+
+_CLASSIFY_SYSTEM = (
+    "You are a Cambodia real estate property type classifier. "
+    "Given a property name, reply with exactly one word from: "
+    "Apartment, Condo, ServiceApartment, Borey, Villa, Shophouse, Studio. "
+    "Rules: Most named residential towers in Phnom Penh are Condo or Apartment. "
+    "Use Borey only if the word Borey appears or it is clearly a gated housing estate. "
+    "Use Apartment for mid-rise rentals and named residences without condo branding. "
+    "Use Condo for high-rise units sold or rented with strata title. "
+    "Reply with one word only. No explanation."
+)
+
+_CLASSIFY_MAP = {
+    "apartment":        "Apartment",
+    "condo":            "Condo",
+    "serviceapartment": "Service Apartment",
+    "borey":            "Borey",
+    "villa":            "Villa",
+    "shophouse":        "Shophouse",
+    "studio":           "Studio",
+}
+
+
+def _classify_by_name(name):
+    lower = name.lower()
+    for pattern, ptype in _NAME_KEYWORDS:
+        if re.search(pattern, lower):
+            return ptype
+    return None
+
+
+def _classify_via_claude(name):
+    client = _get_client()
+    msg = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=10,
+        system=_CLASSIFY_SYSTEM,
+        messages=[{"role": "user", "content": name}],
+    )
+    word = msg.content[0].text.strip().lower().replace(" ", "")
+    return _CLASSIFY_MAP.get(word, "Apartment")
+
+
+def backfill_property_type(dry_run=False):
+    """Fill property_type for all listings where it is NULL."""
+    db.init_db()
+    rows = db.get_properties_missing_type()
+
+    if not rows:
+        print("✅ No listings with missing property_type.")
+        return
+
+    from_profile = from_keyword = from_claude = 0
+
+    for row in rows:
+        name     = row["property_name"]
+        btype    = row["building_type"]
+        count    = row["listing_count"]
+        source   = None
+
+        # 1. Use existing profile building_type
+        if btype:
+            ptype = _BUILDING_TYPE_MAP.get(btype.lower().strip())
+            if ptype:
+                source = "profile"
+
+        # 2. Keyword match on name
+        if not source:
+            ptype = _classify_by_name(name)
+            if ptype:
+                source = "keyword"
+
+        # 3. Ask Claude
+        if not source:
+            try:
+                ptype = _classify_via_claude(name)
+                source = "claude"
+                time.sleep(0.3)
+            except Exception as e:
+                logger.error("Claude classify failed for %s: %s", name, e)
+                ptype = "Apartment"
+                source = "fallback"
+
+        tag = f"[{source}]"
+        print(f"  {tag:10s} {name:40s} → {ptype}  ({count} rows)")
+
+        if not dry_run:
+            updated = db.bulk_update_property_type(name, ptype)
+            if source == "profile":
+                from_profile += updated
+            elif source == "keyword":
+                from_keyword += updated
+            else:
+                from_claude += updated
+
+    if not dry_run:
+        total = from_profile + from_keyword + from_claude
+        print(f"\n✅ Updated {total} row(s)  —  profile:{from_profile}  keyword:{from_keyword}  claude:{from_claude}")
+    else:
+        print("\nDry run — pass --backfill to apply.")
 
 
 def run(limit=None, dry_run=False):
@@ -134,8 +261,13 @@ def main():
     parser = argparse.ArgumentParser(description="Research and enrich property profiles.")
     parser.add_argument("--limit", type=int, default=None, help="Max buildings to research")
     parser.add_argument("--dry-run", action="store_true", help="Show pending buildings without calling Claude")
+    parser.add_argument("--backfill", action="store_true", help="Backfill property_type for listings where it is NULL")
     args = parser.parse_args()
-    run(limit=args.limit, dry_run=args.dry_run)
+
+    if args.backfill:
+        backfill_property_type(dry_run=args.dry_run)
+    else:
+        run(limit=args.limit, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

@@ -564,6 +564,54 @@ def make_building_key(property_name, district):
     return f"{name}|{dist}"
 
 
+def get_properties_missing_type():
+    """Return distinct (property_name, district, building_type_from_profile) where property_type IS NULL."""
+    conn = get_connection()
+    try:
+        rows = conn.execute("""
+            SELECT
+                l.property_name,
+                l.district,
+                pp.building_type,
+                COUNT(*) AS listing_count
+            FROM listings l
+            LEFT JOIN property_profiles pp
+                ON pp.building_key =
+                   LOWER(TRIM(COALESCE(l.property_name,''))) || '|' ||
+                   LOWER(TRIM(COALESCE(l.district,'')))
+            WHERE l.property_type IS NULL
+              AND l.property_name IS NOT NULL
+              AND TRIM(l.property_name) != ''
+            GROUP BY l.property_name, l.district, pp.building_type
+            ORDER BY listing_count DESC
+        """).fetchall()
+        return [
+            {
+                "property_name":  r[0],
+                "district":       r[1],
+                "building_type":  r[2],
+                "listing_count":  r[3],
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+def bulk_update_property_type(property_name, property_type):
+    """Set property_type on all listings with the given property_name."""
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "UPDATE listings SET property_type = ? WHERE property_name = ? AND property_type IS NULL",
+            (property_type, property_name),
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
 def get_unresearched_buildings():
     """Return buildings that have listings but no profile yet."""
     conn = get_connection()
