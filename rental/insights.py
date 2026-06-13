@@ -1,118 +1,55 @@
 """
-State-of-the-art rental market dashboard.
-Produces data/insights.png.
+Generate a self-contained HTML market intelligence dashboard.
+Outputs data/insights.html — open in any browser, screenshot for social media.
 
 Usage:
     python -m rental.insights
 """
 
+import json
 import os
 import sqlite3
-import warnings
+import webbrowser
 from collections import defaultdict
+from datetime import date
 
-import matplotlib.patches as mpatches
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 import numpy as np
 
-from .normalizer import normalise_district, normalise_room, normalise_furnished
 from .config import settings
-
-warnings.filterwarnings("ignore")
+from .normalizer import normalise_district, normalise_room, normalise_furnished
 
 DB_PATH  = settings.database_path
-OUT_PATH = os.path.join(os.path.dirname(os.path.abspath(DB_PATH)), "insights.png")
-
-# ── Design tokens ──────────────────────────────────────────────────────────────
-BG    = "#F8FAFC"
-CARD  = "#FFFFFF"
-LINE  = "#E2E8F0"
-DARK  = "#0F172A"
-MID   = "#475569"
-SOFT  = "#94A3B8"
-
-BLUE   = "#3B82F6"
-GREEN  = "#10B981"
-AMBER  = "#F59E0B"
-RED    = "#EF4444"
-PURPLE = "#8B5CF6"
-PINK   = "#EC4899"
-TEAL   = "#14B8A6"
-GRAY   = "#CBD5E1"
-
-PTYPE_PAL = {
-    "Condo":             BLUE,
-    "Apartment":         GREEN,
-    "Service Apartment": PURPLE,
-    "Borey":             AMBER,
-    "Villa":             RED,
-    "Shophouse":         TEAL,
-    "Studio":            PINK,
-    "Unknown":           GRAY,
-}
+OUT_PATH = os.path.join(os.path.dirname(os.path.abspath(DB_PATH)), "insights.html")
 
 ROOM_ORDER = ["Studio", "1BR", "2BR", "3BR", "4BR+"]
-ROOM_PAL   = [PURPLE, BLUE, GREEN, AMBER, RED]
 
-FURN_PAL = {"Full": GREEN, "Partial": AMBER, "Unfurnished": SOFT}
-
-
-# ── Helpers ────────────────────────────────────────────────────────────────────
-def _style(ax, title="", xlabel="", ylabel=""):
-    ax.set_facecolor(CARD)
-    ax.spines[["top", "right"]].set_visible(False)
-    ax.spines[["left", "bottom"]].set_color(LINE)
-    ax.tick_params(colors=MID, labelsize=8)
-    if xlabel:
-        ax.set_xlabel(xlabel, color=MID, fontsize=8)
-    if ylabel:
-        ax.set_ylabel(ylabel, color=MID, fontsize=8)
-    if title:
-        ax.set_title(title, fontsize=10, fontweight="bold", color=DARK, pad=9)
+PTYPE_COLORS = {
+    "Condo":             "#3B82F6",
+    "Apartment":         "#10B981",
+    "Service Apartment": "#8B5CF6",
+    "Borey":             "#F59E0B",
+    "Villa":             "#EF4444",
+    "Shophouse":         "#14B8A6",
+    "Studio":            "#EC4899",
+}
 
 
-def _kpi(ax, value, label, sub, accent):
-    ax.set_facecolor(CARD)
-    ax.axis("off")
-    bar = mpatches.FancyBboxPatch(
-        (0, 0.82), 1, 0.18,
-        boxstyle="square,pad=0",
-        fc=accent, ec="none",
-        transform=ax.transAxes, clip_on=False, zorder=2,
-    )
-    ax.add_patch(bar)
-    ax.text(0.5, 0.91, label, ha="center", va="center", fontsize=8.5,
-            fontweight="bold", color="white", transform=ax.transAxes, zorder=3)
-    ax.text(0.5, 0.52, value, ha="center", va="center", fontsize=21,
-            fontweight="bold", color=DARK, transform=ax.transAxes)
-    ax.text(0.5, 0.18, sub, ha="center", va="center", fontsize=8,
-            color=SOFT, transform=ax.transAxes)
-    for sp in ax.spines.values():
-        sp.set_edgecolor(LINE)
-
-
-# ── Data loading ───────────────────────────────────────────────────────────────
-def load_data():
+def _extract():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-
     rows = conn.execute("""
         SELECT district, room_type, furnished_status, property_type,
-               rent_usd, electricity_per_kwh, water_per_m3,
-               extraction_confidence, needs_review, posted_at
+               rent_usd, electricity_per_kwh, extraction_confidence,
+               needs_review, posted_at
         FROM listings
     """).fetchall()
-
     monthly = conn.execute("""
         SELECT strftime('%Y-%m', posted_at) mo, COUNT(*) n
-        FROM listings WHERE posted_at IS NOT NULL
-        GROUP BY 1 ORDER BY 1
+        FROM listings WHERE posted_at IS NOT NULL GROUP BY 1 ORDER BY 1
     """).fetchall()
-
     conn.close()
 
-    data = []
+    records = []
     for r in rows:
         room = normalise_room(r["room_type"])
         if room and room not in ("Studio", "1BR", "2BR", "3BR"):
@@ -120,285 +57,714 @@ def load_data():
         ptype = r["property_type"] or "Unknown"
         if ptype == "null":
             ptype = "Unknown"
-        data.append({
+        records.append({
             "district": normalise_district(r["district"]),
             "room":     room,
             "furnished": normalise_furnished(r["furnished_status"]),
             "ptype":    ptype,
             "rent":     r["rent_usd"],
             "elec":     r["electricity_per_kwh"],
-            "conf":     r["extraction_confidence"] or 0.0,
+            "conf":     float(r["extraction_confidence"] or 0),
             "review":   bool(r["needs_review"]),
         })
 
-    return data, [dict(r) for r in monthly]
+    n     = len(records)
+    rents = [r["rent"] for r in records if r["rent"] and 0 < r["rent"] < 5000]
 
-
-# ── Main plot ──────────────────────────────────────────────────────────────────
-def plot(data, monthly):
-    n     = len(data)
-    rents = [d["rent"] for d in data if d["rent"] and 0 < d["rent"] < 5000]
-
-    # ── Figure + grid ──────────────────────────────────────────────────────────
-    fig = plt.figure(figsize=(22, 26), facecolor=BG)
-    fig.text(0.04, 0.985, "Phnom Penh Rental Market — Intelligence Report",
-             fontsize=20, fontweight="bold", color=DARK, va="top")
-    fig.text(0.04, 0.972,
-             f"{n:,} listings  ·  Jan – Jun 2026  ·  Claude-extracted, SQLite-backed",
-             fontsize=10.5, color=MID, va="top")
-
-    gs = gridspec.GridSpec(
-        5, 4,
-        figure=fig,
-        height_ratios=[0.9, 2.2, 2.1, 2.4, 1.9],
-        hspace=0.55, wspace=0.38,
-        left=0.05, right=0.97,
-        top=0.96, bottom=0.03,
-    )
-
-    # ── Row 0: KPI tiles ───────────────────────────────────────────────────────
-    kax = [fig.add_subplot(gs[0, i]) for i in range(4)]
-    med  = float(np.median(rents))
-    avg  = float(np.mean(rents))
-    hiq  = sum(1 for d in data if d["conf"] >= 0.8) / n * 100
-
+    # Districts
     dist_counts = defaultdict(int)
-    for d in data:
-        if d["district"]:
-            dist_counts[d["district"]] += 1
-    top_dist = max(dist_counts, key=dist_counts.get, default="—")
+    for r in records:
+        if r["district"]:
+            dist_counts[r["district"]] += 1
+    top_dist  = max(dist_counts, key=dist_counts.get, default="—")
+    top14     = sorted(dist_counts.items(), key=lambda x: x[1], reverse=True)[:14]
+    top10_keys = [k for k, _ in sorted(dist_counts.items(), key=lambda x: x[1], reverse=True)[:10]]
 
-    _kpi(kax[0], f"{n:,}", "Total Listings", "Jan – Jun 2026", BLUE)
-    _kpi(kax[1], f"${avg:.0f}", "Avg Rent / mo", f"Median  ${med:.0f}", GREEN)
-    _kpi(kax[2], top_dist, "Top District", f"{dist_counts[top_dist]:,} listings", AMBER)
-    _kpi(kax[3], f"{hiq:.0f}%", "High Confidence", "extraction score ≥ 0.8", PURPLE)
+    # Rent histogram
+    hc, he = np.histogram(rents, bins=40, range=(100, 4500))
+    h_bins  = [round((he[i] + he[i+1]) / 2) for i in range(len(hc))]
 
-    # ── Row 1 left (span 2): Rent distribution ────────────────────────────────
-    ax_hist = fig.add_subplot(gs[1, :2])
-    p10, p25, p50, p75, p90 = np.percentile(rents, [10, 25, 50, 75, 90])
-    ax_hist.hist(rents, bins=42, color=BLUE, alpha=0.82, edgecolor="white", linewidth=0.4, zorder=2)
-    ax_hist.axvspan(p25, p75, alpha=0.13, color=GREEN, zorder=1, label=f"IQR  ${p25:.0f} – ${p75:.0f}")
-    for val, label, col, ls in [
-        (p10, "P10", SOFT, ":"), (p50, "P50", GREEN, "--"),
-        (avg, "Mean", AMBER, "--"), (p90, "P90", RED, ":"),
-    ]:
-        ax_hist.axvline(val, color=col, linestyle=ls, linewidth=1.6, zorder=3)
-        ax_hist.text(val + 12, ax_hist.get_ylim()[1] * 0.88,
-                     f"{label}\n${val:.0f}", fontsize=7, color=col, va="top", zorder=4)
-    ax_hist.legend(fontsize=8, framealpha=0.7)
-    _style(ax_hist, "Rent Distribution  (USD / month)", "USD / month", "Listings")
+    # Percentiles
+    pcts = {k: int(np.percentile(rents, v)) for k, v in
+            [("p10",10),("p25",25),("p50",50),("p75",75),("p90",90)]} if rents else {}
 
-    # ── Row 1 col 2: Avg rent by room type (with error bars) ──────────────────
-    ax_room = fig.add_subplot(gs[1, 2])
-    room_vals = {r: [d["rent"] for d in data if d["room"] == r and d["rent"]] for r in ROOM_ORDER}
-    r_avg = [float(np.mean(v)) if v else 0 for v in room_vals.values()]
-    r_std = [float(np.std(v))  if len(v) > 1 else 0 for v in room_vals.values()]
-    r_cnt = [len(v) for v in room_vals.values()]
-    bars_r = ax_room.bar(ROOM_ORDER, r_avg, color=ROOM_PAL, edgecolor="white", linewidth=0.7, zorder=3)
-    ax_room.errorbar(ROOM_ORDER, r_avg, yerr=r_std, fmt="none", color=DARK,
-                     capsize=4, linewidth=1.2, zorder=4)
-    max_top = 0
-    for bar, avg_v, std_v, cnt in zip(bars_r, r_avg, r_std, r_cnt):
-        if avg_v > 0:
-            error_top = avg_v + std_v
-            max_top = max(max_top, error_top)
-            # dollar label above the error bar cap
-            ax_room.text(bar.get_x() + bar.get_width() / 2, error_top + 20,
-                         f"${avg_v:.0f}", ha="center", fontsize=8.5,
-                         color=DARK, fontweight="bold", va="bottom")
-            # sample count inside the bar
-            ax_room.text(bar.get_x() + bar.get_width() / 2, avg_v * 0.06,
-                         f"n={cnt}", ha="center", fontsize=7,
-                         color="white", va="bottom", alpha=0.9)
-    ax_room.set_ylim(0, max_top * 1.25 if max_top else 1)
-    _style(ax_room, "Avg Rent by Room Type", "", "USD / month")
+    # Room type averages + std
+    rv = {r: [d["rent"] for d in records if d["room"] == r and d["rent"]] for r in ROOM_ORDER}
 
-    # ── Row 1 col 3: Monthly volume trend ─────────────────────────────────────
-    ax_trend = fig.add_subplot(gs[1, 3])
-    if monthly:
-        mo_labels = [m["mo"][5:] + " '" + m["mo"][2:4] for m in monthly]
-        mo_counts = [m["n"] for m in monthly]
-        xs = range(len(mo_counts))
-        ax_trend.fill_between(xs, mo_counts, alpha=0.18, color=BLUE)
-        ax_trend.plot(xs, mo_counts, color=BLUE, linewidth=2.5, marker="o",
-                      markersize=5.5, zorder=3)
-        for i, (lbl, cnt) in enumerate(zip(mo_labels, mo_counts)):
-            ax_trend.text(i, cnt + max(mo_counts) * 0.04, str(cnt),
-                          ha="center", fontsize=8, color=DARK, fontweight="bold")
-        ax_trend.set_xticks(list(xs))
-        ax_trend.set_xticklabels(mo_labels, fontsize=7.5, rotation=20, ha="right")
-        # Flag last month as partial
-        ax_trend.axvline(len(mo_counts) - 1, color=RED, linestyle=":", linewidth=1.2, alpha=0.7)
-        ax_trend.text(len(mo_counts) - 1.05, max(mo_counts) * 0.45,
-                      "partial\nmonth", fontsize=7, color=RED, ha="right", style="italic")
-    _style(ax_trend, "Listing Volume by Month", "", "Count")
-
-    # ── Row 2 left (span 2): Top districts ────────────────────────────────────
-    ax_dist = fig.add_subplot(gs[2, :2])
-    top14 = sorted(dist_counts.items(), key=lambda x: x[1], reverse=True)[:14]
-    d_labels, d_counts = zip(*top14)
-    d_colors = [BLUE] + [SOFT] * (len(d_labels) - 1)
-    bars_d = ax_dist.barh(
-        list(reversed(d_labels)), list(reversed(d_counts)),
-        color=list(reversed(d_colors)), edgecolor="white", linewidth=0.4,
-    )
-    ax_dist.bar_label(bars_d, padding=4, fontsize=8, color=DARK)
-    ax_dist.set_xlim(0, max(d_counts) * 1.20)
-    _style(ax_dist, "Listings by District  (top 14)", "Count", "")
-
-    # ── Row 2 col 2: Property type donut ──────────────────────────────────────
-    ax_pt = fig.add_subplot(gs[2, 2])
-    pt_count = defaultdict(int)
-    for d in data:
-        if d["ptype"] != "Unknown":
-            pt_count[d["ptype"]] += 1
-    pt_items = sorted(pt_count.items(), key=lambda x: x[1], reverse=True)
-    pt_vals   = [v for _, v in pt_items]
-    pt_labels = [k for k, _ in pt_items]
-    pt_colors = [PTYPE_PAL.get(k, GRAY) for k in pt_labels]
-    ax_pt.pie(pt_vals, colors=pt_colors, startangle=90,
-              wedgeprops={"edgecolor": "white", "linewidth": 2, "width": 0.58})
-    ax_pt.text(0, 0, str(sum(pt_vals)), ha="center", va="center",
-               fontsize=18, fontweight="bold", color=DARK)
-    ax_pt.text(0, -0.25, "typed\nlistings", ha="center", va="center", fontsize=7.5, color=MID)
-    handles_pt = [
-        mpatches.Patch(color=PTYPE_PAL.get(k, GRAY), label=f"{k}  ({v})")
-        for k, v in pt_items
-    ]
-    ax_pt.legend(handles=handles_pt, fontsize=7, loc="lower center",
-                 bbox_to_anchor=(0.5, -0.42), ncol=2, framealpha=0)
-    ax_pt.set_title("Property Types", fontsize=10, fontweight="bold", color=DARK, pad=9)
-
-    # ── Row 2 col 3: Furnished status donut ───────────────────────────────────
-    ax_furn = fig.add_subplot(gs[2, 3])
-    furn_order = ["Full", "Partial", "Unfurnished"]
-    furn_cnt   = {k: sum(1 for d in data if d["furnished"] == k) for k in furn_order}
-    furn_vals2 = [furn_cnt[k] for k in furn_order if furn_cnt[k] > 0]
-    furn_keys2 = [k for k in furn_order if furn_cnt[k] > 0]
-    furn_cols2 = [FURN_PAL[k] for k in furn_keys2]
-    furn_total = sum(furn_vals2)
-    ax_furn.pie(furn_vals2, colors=furn_cols2, startangle=90,
-                wedgeprops={"edgecolor": "white", "linewidth": 2, "width": 0.58})
-    ax_furn.text(0, 0, str(furn_total), ha="center", va="center",
-                 fontsize=18, fontweight="bold", color=DARK)
-    ax_furn.text(0, -0.25, "w/ data", ha="center", va="center", fontsize=7.5, color=MID)
-    handles_f = [
-        mpatches.Patch(color=FURN_PAL[k], label=f"{k}  ({furn_cnt[k]},  {furn_cnt[k]/furn_total*100:.0f}%)")
-        for k in furn_keys2
-    ]
-    ax_furn.legend(handles=handles_f, fontsize=7.5, loc="lower center",
-                   bbox_to_anchor=(0.5, -0.32), ncol=1, framealpha=0)
-    ax_furn.set_title("Furnished Status", fontsize=10, fontweight="bold", color=DARK, pad=9)
-
-    # ── Row 3 (full width): District × Room heatmap ───────────────────────────
-    ax_heat = fig.add_subplot(gs[3, :])
+    # Heatmap
     heat_rooms = ["Studio", "1BR", "2BR", "3BR"]
-    heat_dists = [lbl for lbl, _ in top14[:10]]
-
-    matrix = np.full((len(heat_dists), len(heat_rooms)), np.nan)
-    sample  = np.zeros((len(heat_dists), len(heat_rooms)), dtype=int)
-    for i, dist in enumerate(heat_dists):
+    hm_data = []
+    for i, dist in enumerate(top10_keys):
         for j, room in enumerate(heat_rooms):
-            vals = [d["rent"] for d in data if d["district"] == dist and d["room"] == room and d["rent"]]
+            vals = [d["rent"] for d in records
+                    if d["district"] == dist and d["room"] == room and d["rent"]]
             if vals:
-                matrix[i, j] = float(np.median(vals))
-                sample[i, j] = len(vals)
+                hm_data.append([j, i, int(np.median(vals)), len(vals)])
 
-    # mask empty cells so colormap skips them
-    masked = np.ma.masked_invalid(matrix)
-    im = ax_heat.imshow(masked, cmap="YlOrRd", aspect="auto", vmin=np.nanmin(matrix), vmax=np.nanmax(matrix))
+    hm_vals = [x[2] for x in hm_data]
 
-    ax_heat.set_xticks(range(len(heat_rooms)))
-    ax_heat.set_xticklabels(heat_rooms, fontsize=10, color=DARK, fontweight="bold")
-    ax_heat.set_yticks(range(len(heat_dists)))
-    ax_heat.set_yticklabels(heat_dists, fontsize=9.5, color=DARK)
-    ax_heat.tick_params(length=0)
+    # Furnished premium (grouped bar)
+    fp_full    = [int(np.mean([d["rent"] for d in records if d["room"]==r and d["furnished"]=="Full"    and d["rent"]]) or 0)
+                  if any(d["room"]==r and d["furnished"]=="Full"    and d["rent"] for d in records) else None
+                  for r in ROOM_ORDER]
+    fp_partial = [int(np.mean([d["rent"] for d in records if d["room"]==r and d["furnished"]=="Partial" and d["rent"]]) or 0)
+                  if any(d["room"]==r and d["furnished"]=="Partial" and d["rent"] for d in records) else None
+                  for r in ROOM_ORDER]
+    fp_none    = [int(np.mean([d["rent"] for d in records if d["room"]==r and d["furnished"] is None    and d["rent"]]) or 0)
+                  if any(d["room"]==r and d["furnished"] is None    and d["rent"] for d in records) else None
+                  for r in ROOM_ORDER]
 
-    thresh = np.nanpercentile(matrix, 60)
-    for i in range(len(heat_dists)):
-        for j in range(len(heat_rooms)):
-            val = matrix[i, j]
-            if not np.isnan(val):
-                text_color = "white" if val > thresh else DARK
-                ax_heat.text(j, i, f"${val:.0f}\n(n={sample[i,j]})",
-                             ha="center", va="center", fontsize=8.5,
-                             color=text_color, fontweight="bold")
-            else:
-                ax_heat.text(j, i, "—", ha="center", va="center",
-                             fontsize=9, color=SOFT)
+    # Electricity histogram
+    ev = [r["elec"] for r in records if r["elec"] and 0.05 < r["elec"] < 0.5]
+    ec2, ee2 = (np.histogram(ev, bins=16), ev) if ev else ((np.array([]), np.array([])), ev)
+    if ev:
+        ec_counts, ee2 = np.histogram(ev, bins=16)
+        ec_bins = [round((ee2[i] + ee2[i+1]) / 2, 3) for i in range(len(ec_counts))]
+    else:
+        ec_counts, ec_bins = [], []
 
-    cb = plt.colorbar(im, ax=ax_heat, orientation="vertical", fraction=0.015, pad=0.01)
-    cb.ax.tick_params(labelsize=8)
-    cb.set_label("Median Rent  (USD / mo)", fontsize=8.5, color=MID)
-    ax_heat.set_facecolor(CARD)
-    ax_heat.set_title(
-        "Median Rent Heatmap  ·  District × Room Type  (n = sample size)",
-        fontsize=11, fontweight="bold", color=DARK, pad=10,
-    )
+    # Property types + furnished
+    ptc = defaultdict(int)
+    for r in records:
+        if r["ptype"] != "Unknown":
+            ptc[r["ptype"]] += 1
+    pt_sorted = sorted(ptc.items(), key=lambda x: x[1], reverse=True)
+    furn_cnt = {k: sum(1 for r in records if r["furnished"] == k)
+                for k in ["Full", "Partial", "Unfurnished"]}
 
-    # ── Row 4 left (span 2): Furnished premium grouped bar ────────────────────
-    ax_fp = fig.add_subplot(gs[4, :2])
-    furn_types3 = ["Full", "Partial", None]
-    furn_lbls3  = ["Fully Furnished", "Partial", "Not stated"]
-    furn_cols3  = [GREEN, AMBER, GRAY]
-    x3 = np.arange(len(ROOM_ORDER))
-    w3 = 0.26
-    for i, (furn, lbl, col) in enumerate(zip(furn_types3, furn_lbls3, furn_cols3)):
-        avgs3 = []
-        for room in ROOM_ORDER:
-            vals3 = [d["rent"] for d in data if d["room"] == room and d["furnished"] == furn and d["rent"]]
-            avgs3.append(float(np.mean(vals3)) if vals3 else 0)
-        offset = (i - 1) * w3
-        b3 = ax_fp.bar(x3 + offset, avgs3, w3, label=lbl, color=col,
-                        edgecolor="white", linewidth=0.4, alpha=0.92)
-    ax_fp.set_xticks(x3)
-    ax_fp.set_xticklabels(ROOM_ORDER, fontsize=9)
-    ax_fp.legend(fontsize=8, framealpha=0.7)
-    _style(ax_fp, "Avg Rent by Room Type & Furnished Status", "", "USD / month")
-
-    # ── Row 4 col 2: Electricity rate distribution ────────────────────────────
-    ax_elec = fig.add_subplot(gs[4, 2])
-    elec_vals = [d["elec"] for d in data if d["elec"] and 0.05 < d["elec"] < 0.5]
-    if elec_vals:
-        ax_elec.hist(elec_vals, bins=16, color=AMBER, edgecolor="white", linewidth=0.4, alpha=0.9)
-        e_med = float(np.median(elec_vals))
-        ax_elec.axvline(e_med, color=RED, linestyle="--", linewidth=1.6)
-        ax_elec.text(e_med + 0.003, ax_elec.get_ylim()[1] * 0.88,
-                     f"Median\n${e_med:.3f}", fontsize=7.5, color=RED, va="top")
-        ax_elec.text(0.97, 0.92, f"n = {len(elec_vals)}",
-                     transform=ax_elec.transAxes, ha="right", fontsize=8, color=MID)
-    _style(ax_elec, "Electricity Rate  ($/kWh)", "$/kWh", "Count")
-
-    # ── Row 4 col 3: Extraction quality ───────────────────────────────────────
-    ax_qual = fig.add_subplot(gs[4, 3])
-    buckets = {
-        "High\n≥ 0.8":   sum(1 for d in data if d["conf"] >= 0.8),
-        "Med\n0.6–0.8":  sum(1 for d in data if 0.6 <= d["conf"] < 0.8),
-        "Low\n< 0.6":    sum(1 for d in data if d["conf"] < 0.6),
+    return {
+        "meta": {"generated_at": date.today().strftime("%B %d, %Y"), "total": n},
+        "kpis": {
+            "total":               n,
+            "avg_rent":            int(np.mean(rents)) if rents else 0,
+            "median_rent":         int(np.median(rents)) if rents else 0,
+            "top_district":        top_dist,
+            "top_district_count":  dist_counts[top_dist],
+            "high_conf_pct":       round(sum(1 for r in records if r["conf"] >= 0.8) / n * 100),
+            "needs_review":        sum(1 for r in records if r["review"]),
+        },
+        "percentiles": pcts,
+        "rent_hist":   {"bins": h_bins, "counts": hc.tolist()},
+        "room_avg": {
+            "labels": ROOM_ORDER,
+            "avgs":   [int(np.mean(rv[r])) if rv[r] else None for r in ROOM_ORDER],
+            "counts": [len(rv[r]) for r in ROOM_ORDER],
+            "stds":   [int(np.std(rv[r])) if len(rv[r]) > 1 else 0 for r in ROOM_ORDER],
+        },
+        "monthly": {
+            "labels": [m["mo"][5:] + "/" + m["mo"][2:4] for m in monthly],
+            "counts": [m["n"] for m in monthly],
+        },
+        "districts": {
+            "labels": [k for k, _ in top14],
+            "counts": [v for _, v in top14],
+        },
+        "property_types": [
+            {"name": k, "value": v, "itemStyle": {"color": PTYPE_COLORS.get(k, "#94A3B8")}}
+            for k, v in pt_sorted
+        ],
+        "furnished": [
+            {"name": k, "value": v,
+             "itemStyle": {"color": {"Full": "#10B981", "Partial": "#F59E0B",
+                                     "Unfurnished": "#94A3B8"}.get(k, "#94A3B8")}}
+            for k, v in furn_cnt.items() if v > 0
+        ],
+        "heatmap": {
+            "districts": top10_keys,
+            "rooms":     heat_rooms,
+            "data":      hm_data,
+            "min":       min(hm_vals) if hm_vals else 0,
+            "max":       max(hm_vals) if hm_vals else 0,
+        },
+        "furnished_premium": {
+            "rooms":   ROOM_ORDER,
+            "full":    fp_full,
+            "partial": fp_partial,
+            "none":    fp_none,
+        },
+        "elec": {
+            "bins":   ec_bins,
+            "counts": ec_counts.tolist() if hasattr(ec_counts, "tolist") else list(ec_counts),
+            "median": round(float(np.median(ev)), 3) if ev else None,
+            "n":      len(ev),
+        },
+        "quality": {
+            "high":    sum(1 for r in records if r["conf"] >= 0.8),
+            "med":     sum(1 for r in records if 0.6 <= r["conf"] < 0.8),
+            "low":     sum(1 for r in records if r["conf"] < 0.6),
+            "flagged": sum(1 for r in records if r["review"]),
+        },
     }
-    b_colors = [GREEN, AMBER, RED]
-    bars_q = ax_qual.bar(buckets.keys(), buckets.values(), color=b_colors,
-                          edgecolor="white", linewidth=0.7)
-    ax_qual.bar_label(bars_q, padding=4, fontsize=9, color=DARK, fontweight="bold")
-    review_n = sum(1 for d in data if d["review"])
-    ax_qual.text(0.97, 0.96,
-                 f"⚠  {review_n} flagged\nfor review",
-                 transform=ax_qual.transAxes, ha="right", va="top",
-                 fontsize=8, color=RED,
-                 bbox=dict(boxstyle="round,pad=0.3", fc=CARD, ec=RED, alpha=0.85))
-    _style(ax_qual, "Extraction Quality", "", "Count")
 
-    # ── Export ────────────────────────────────────────────────────────────────
+
+# ── HTML template ──────────────────────────────────────────────────────────────
+_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta property="og:title" content="Phnom Penh Rental Market — Intelligence Report">
+<meta property="og:description" content="Deep analysis of rental listings across Phnom Penh. Prices, districts, trends.">
+<title>Phnom Penh Rental Market Intelligence</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --blue:#2563EB;--blue-l:#EFF6FF;--green:#059669;--amber:#D97706;
+  --red:#DC2626;--purple:#7C3AED;--teal:#0D9488;--pink:#DB2777;
+  --bg:#EEF2FF;--card:#fff;--border:#E2E8F0;
+  --text:#0F172A;--mid:#475569;--soft:#94A3B8;
+  --font:'Inter',system-ui,-apple-system,sans-serif;
+  --shadow:0 1px 3px rgba(0,0,0,.05),0 4px 16px rgba(0,0,0,.06);
+  --r:14px;
+}
+body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14px;line-height:1.6}
+
+/* ── Header ── */
+.hdr{
+  background:linear-gradient(140deg,#0F0C29 0%,#1E1B4B 45%,#1D4ED8 100%);
+  padding:52px 48px 44px;position:relative;overflow:hidden;
+}
+.hdr::before{
+  content:'';position:absolute;inset:0;
+  background:radial-gradient(ellipse at 80% 50%,rgba(99,102,241,.18) 0%,transparent 65%);
+  pointer-events:none;
+}
+.hdr-inner{max-width:1360px;margin:0 auto;position:relative;z-index:1}
+.hdr-badge{
+  display:inline-flex;align-items:center;gap:6px;
+  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);
+  color:rgba(255,255,255,.8);font-size:10.5px;font-weight:700;
+  letter-spacing:.1em;text-transform:uppercase;
+  padding:5px 14px;border-radius:100px;margin-bottom:22px;
+}
+.hdr h1{
+  font-size:clamp(28px,3.2vw,46px);font-weight:900;color:#fff;
+  letter-spacing:-.03em;line-height:1.05;margin-bottom:10px;
+}
+.hdr-sub{font-size:16px;color:rgba(255,255,255,.55);font-weight:400;margin-bottom:34px}
+.hdr-pills{display:flex;gap:14px;flex-wrap:wrap}
+.hdr-pill{
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);
+  border-radius:10px;padding:12px 20px;
+}
+.hdr-pill .v{font-size:20px;font-weight:800;color:#fff;letter-spacing:-.01em}
+.hdr-pill .l{font-size:10px;font-weight:600;color:rgba(255,255,255,.45);
+             text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
+.hdr-date{
+  position:absolute;top:52px;right:0;
+  font-size:11px;color:rgba(255,255,255,.3);text-align:right;
+}
+
+/* ── Main ── */
+.main{max-width:1360px;margin:0 auto;padding:36px 48px 56px}
+
+/* ── Section headers ── */
+.sec{display:flex;align-items:center;gap:12px;margin:40px 0 18px}
+.sec:first-of-type{margin-top:0}
+.sec-lbl{
+  font-size:10.5px;font-weight:800;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--mid);white-space:nowrap;
+}
+.sec-line{flex:1;height:1px;background:var(--border)}
+
+/* ── KPI grid ── */
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.kpi{
+  background:var(--card);border-radius:var(--r);
+  box-shadow:var(--shadow);padding:22px 20px 18px;
+  border-top:4px solid var(--ac,var(--blue));
+  position:relative;overflow:hidden;
+}
+.kpi::after{
+  content:'';position:absolute;bottom:-20px;right:-20px;
+  width:80px;height:80px;border-radius:50%;
+  background:var(--ac,var(--blue));opacity:.06;
+}
+.kpi-v{font-size:30px;font-weight:900;color:var(--text);letter-spacing:-.025em;line-height:1}
+.kpi-l{font-size:11px;font-weight:700;color:var(--mid);text-transform:uppercase;
+        letter-spacing:.07em;margin-top:8px}
+.kpi-s{font-size:11px;color:var(--soft);margin-top:3px}
+
+/* ── Chart cards ── */
+.card{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);padding:22px 20px 16px;overflow:hidden}
+.card-t{font-size:14px;font-weight:700;color:var(--text)}
+.card-s{font-size:11px;color:var(--soft);margin-top:3px;margin-bottom:14px}
+
+/* ── Grids ── */
+.g21  {display:grid;grid-template-columns:2fr 1fr;gap:16px}
+.g211 {display:grid;grid-template-columns:2fr 1fr 1fr;gap:16px}
+.g3   {display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+
+/* ── Insight callout ── */
+.callout{
+  background:linear-gradient(90deg,#EFF6FF,#F5F3FF);
+  border:1px solid #DBEAFE;border-radius:10px;
+  padding:13px 18px;font-size:12px;color:#1E40AF;font-weight:500;
+  display:flex;gap:6px;align-items:flex-start;margin-bottom:16px;
+}
+.callout-icon{font-size:14px;margin-top:1px}
+
+/* ── Footer ── */
+.ftr{
+  text-align:center;padding:22px 48px;
+  font-size:11px;color:var(--soft);
+  border-top:1px solid var(--border);background:var(--card);
+  margin-top:0;
+}
+.ftr strong{color:var(--mid)}
+
+@media(max-width:960px){
+  .kpi-row{grid-template-columns:repeat(2,1fr)}
+  .g21,.g211,.g3{grid-template-columns:1fr}
+  .main,.hdr{padding-left:20px;padding-right:20px}
+}
+</style>
+</head>
+<body>
+
+<!-- ── HEADER ─────────────────────────────────────────────────────────────── -->
+<header class="hdr">
+  <div class="hdr-inner">
+    <div class="hdr-badge">🏙 Market Intelligence Report</div>
+    <h1>Phnom Penh<br>Rental Market</h1>
+    <p class="hdr-sub">Data-driven insights from Telegram listing channels — prices, districts, trends</p>
+    <div class="hdr-pills" id="hdr-pills"></div>
+    <div class="hdr-date" id="hdr-date"></div>
+  </div>
+</header>
+
+<main class="main">
+
+<!-- ── KPIs ─────────────────────────────────────────────────────────────────── -->
+<div class="sec"><span class="sec-lbl">Key Metrics</span><div class="sec-line"></div></div>
+<div class="kpi-row">
+  <div class="kpi" style="--ac:#3B82F6">
+    <div class="kpi-v" id="kv-total">—</div>
+    <div class="kpi-l">Total Listings</div>
+    <div class="kpi-s">Jan – Jun 2026</div>
+  </div>
+  <div class="kpi" style="--ac:#10B981">
+    <div class="kpi-v" id="kv-avg">—</div>
+    <div class="kpi-l">Avg Rent / Month</div>
+    <div class="kpi-s" id="kv-med-s">Median —</div>
+  </div>
+  <div class="kpi" style="--ac:#F59E0B">
+    <div class="kpi-v" id="kv-dist">—</div>
+    <div class="kpi-l">Top District</div>
+    <div class="kpi-s" id="kv-dist-s">— listings</div>
+  </div>
+  <div class="kpi" style="--ac:#8B5CF6">
+    <div class="kpi-v" id="kv-conf">—</div>
+    <div class="kpi-l">High Confidence</div>
+    <div class="kpi-s">extraction score ≥ 0.8</div>
+  </div>
+</div>
+
+<!-- ── MARKET OVERVIEW ────────────────────────────────────────────────────── -->
+<div class="sec"><span class="sec-lbl">📊 Market Overview</span><div class="sec-line"></div></div>
+<div class="g21">
+  <div class="card">
+    <div class="card-t">Rent Distribution</div>
+    <div class="card-s">USD / month &nbsp;·&nbsp; listings under $4,500 &nbsp;·&nbsp; dashed lines = key percentiles</div>
+    <div id="c-hist" style="height:280px"></div>
+  </div>
+  <div class="card">
+    <div class="card-t">Listing Volume by Month</div>
+    <div class="card-s">Jan – Jun 2026 &nbsp;·&nbsp; Jun is a partial month</div>
+    <div id="c-trend" style="height:280px"></div>
+  </div>
+</div>
+
+<!-- ── LOCATION ──────────────────────────────────────────────────────────── -->
+<div class="sec"><span class="sec-lbl">📍 Location & Supply</span><div class="sec-line"></div></div>
+<div class="g211">
+  <div class="card">
+    <div class="card-t">Listings by District</div>
+    <div class="card-s">Top 14 districts ranked by listing count</div>
+    <div id="c-dist" style="height:340px"></div>
+  </div>
+  <div class="card">
+    <div class="card-t">Property Type Mix</div>
+    <div class="card-s">% share of classified listings</div>
+    <div id="c-ptype" style="height:340px"></div>
+  </div>
+  <div class="card">
+    <div class="card-t">Furnished Status</div>
+    <div class="card-s">% of listings with stated furnishing</div>
+    <div id="c-furn" style="height:340px"></div>
+  </div>
+</div>
+
+<!-- ── PRICING HEATMAP ────────────────────────────────────────────────────── -->
+<div class="sec"><span class="sec-lbl">💰 Pricing Intelligence</span><div class="sec-line"></div></div>
+<div class="card">
+  <div class="card-t">Median Rent Heatmap — District × Room Type</div>
+  <div class="card-s">USD / month &nbsp;·&nbsp; each cell shows median rent and sample size (n)</div>
+  <div id="c-heat" style="height:400px"></div>
+</div>
+
+<!-- ── DEEPER ANALYSIS ────────────────────────────────────────────────────── -->
+<div class="sec"><span class="sec-lbl">🔍 Deeper Analysis</span><div class="sec-line"></div></div>
+<div class="g211">
+  <div class="card">
+    <div class="card-t">Avg Rent by Room Type &amp; Furnished Status</div>
+    <div class="card-s">Mean rent across furnishing tiers — shows the furnished premium</div>
+    <div id="c-fprm" style="height:280px"></div>
+  </div>
+  <div class="card">
+    <div class="card-t">Electricity Rate Distribution</div>
+    <div class="card-s">$/kWh across listings where stated</div>
+    <div id="c-elec" style="height:280px"></div>
+  </div>
+  <div class="card">
+    <div class="card-t">Extraction Quality</div>
+    <div class="card-s">Claude confidence score distribution</div>
+    <div id="c-qual" style="height:280px"></div>
+  </div>
+</div>
+
+</main>
+
+<footer class="ftr">
+  <strong>Phnom Penh Rental Market Intelligence</strong> &nbsp;·&nbsp;
+  Data extracted via Claude AI &nbsp;·&nbsp;
+  Source: public Telegram rental channels &nbsp;·&nbsp;
+  Generated <span id="f-date"></span>
+</footer>
+
+<script>
+const D = __DATA__;
+
+// ── Hydrate KPIs & header ─────────────────────────────────────────────────
+document.getElementById('kv-total').textContent   = D.kpis.total.toLocaleString();
+document.getElementById('kv-avg').textContent     = '$' + D.kpis.avg_rent.toLocaleString();
+document.getElementById('kv-med-s').textContent   = 'Median  $' + D.kpis.median_rent.toLocaleString();
+document.getElementById('kv-dist').textContent    = D.kpis.top_district;
+document.getElementById('kv-dist-s').textContent  = D.kpis.top_district_count + ' listings';
+document.getElementById('kv-conf').textContent    = D.kpis.high_conf_pct + '%';
+document.getElementById('hdr-date').textContent   = 'Generated ' + D.meta.generated_at;
+document.getElementById('f-date').textContent     = D.meta.generated_at;
+
+const pills = [
+  { v: D.kpis.total.toLocaleString(),           l: 'Listings' },
+  { v: '$' + D.percentiles.p50,                 l: 'Median Rent' },
+  { v: '$' + D.percentiles.p25 + '–$' + D.percentiles.p75, l: 'IQR Range' },
+  { v: D.kpis.top_district,                     l: 'Top District' },
+];
+document.getElementById('hdr-pills').innerHTML = pills.map(p =>
+  `<div class="hdr-pill"><div class="v">${p.v}</div><div class="l">${p.l}</div></div>`
+).join('');
+
+// ── Shared ECharts config ──────────────────────────────────────────────────
+const C = {
+  B:'#3B82F6', G:'#10B981', A:'#F59E0B', R:'#EF4444',
+  P:'#8B5CF6', T:'#14B8A6', K:'#EC4899', S:'#94A3B8',
+  DARK:'#0F172A', MID:'#475569', SOFT:'#94A3B8', BORDER:'#F1F5F9',
+};
+const tip = {
+  backgroundColor:'#1E293B', borderColor:'transparent',
+  textStyle:{color:'#F1F5F9',fontSize:12},
+  extraCssText:'border-radius:8px;padding:10px 14px;box-shadow:0 8px 30px rgba(0,0,0,.3)',
+};
+const axY = (name='') => ({
+  type:'value', name, nameTextStyle:{color:C.MID,fontSize:10},
+  axisLine:{lineStyle:{color:C.BORDER}}, axisTick:{show:false},
+  axisLabel:{color:C.MID,fontSize:10},
+  splitLine:{lineStyle:{color:'#F8FAFC',type:'dashed'}},
+});
+const axX = (data, rotate=0) => ({
+  type:'category', data,
+  axisLine:{lineStyle:{color:C.BORDER}}, axisTick:{show:false},
+  axisLabel:{color:C.MID,fontSize:10,rotate},
+});
+const axXV = () => ({
+  type:'value',
+  axisLine:{lineStyle:{color:C.BORDER}}, axisTick:{show:false},
+  axisLabel:{color:C.MID,fontSize:10},
+  splitLine:{lineStyle:{color:'#F8FAFC',type:'dashed'}},
+});
+const grid = (t=16,r=16,b=36,l=48) => ({top:t,right:r,bottom:b,left:l,containLabel:true});
+function ec(id){ return echarts.init(document.getElementById(id),null,{renderer:'svg'}); }
+
+// ── 1. Rent histogram ─────────────────────────────────────────────────────
+(function(){
+  const ch = ec('c-hist');
+  const P  = D.percentiles;
+  const mx = Math.max(...D.rent_hist.counts);
+  const ml = (val, lbl, col) => ({
+    xAxis: val+'', yAxis:0,
+    lineStyle:{color:col,width:1.8,type:'dashed'},
+    label:{show:true,position:'insideEndTop',formatter:lbl,color:col,fontSize:10,fontWeight:'600'},
+    symbol:'none',
+  });
+  ch.setOption({
+    grid: grid(36,20,32,20),
+    tooltip: {...tip, trigger:'axis',
+      formatter:p=>`$${p[0].name}<br/><b>${p[0].value} listings</b>`},
+    xAxis: axX(D.rent_hist.bins),
+    yAxis: axY('Listings'),
+    visualMap:{show:false,min:0,max:mx,inRange:{color:[C.B+'55',C.B]}},
+    series:[{
+      type:'bar', data:D.rent_hist.counts, barWidth:'90%',
+      itemStyle:{borderRadius:[3,3,0,0]},
+      markLine:{silent:true, animation:false, data:[
+        ml(P.p25,'P25',C.S), ml(P.p50,'P50\n$'+P.p50,C.G),
+        ml(P.p75,'P75',C.A), ml(P.p90,'P90',C.R),
+      ]},
+    }],
+  });
+})();
+
+// ── 2. Monthly trend ──────────────────────────────────────────────────────
+(function(){
+  const ch = ec('c-trend');
+  const mx = Math.max(...D.monthly.counts);
+  ch.setOption({
+    grid: grid(32,16,32,20),
+    tooltip: {...tip, trigger:'axis',
+      formatter:p=>`${p[0].name} 2026<br/><b>${p[0].value} listings</b>`},
+    xAxis: axX(D.monthly.labels),
+    yAxis: axY(),
+    series:[{
+      type:'line', data:D.monthly.counts, smooth:0.3,
+      symbol:'circle', symbolSize:7, lineWidth:2.5,
+      color:C.B,
+      areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,
+        colorStops:[{offset:0,color:C.B+'44'},{offset:1,color:C.B+'05'}]}},
+      markPoint:{
+        data:[{type:'max',name:'Peak',label:{formatter:'Peak\n{c}',fontSize:10}}],
+        symbol:'circle',symbolSize:42,
+        itemStyle:{color:C.R+'22',borderColor:C.R,borderWidth:1.5},
+        label:{color:C.R,fontWeight:'700'},
+      },
+    }],
+  });
+})();
+
+// ── 3. Districts horizontal bar ───────────────────────────────────────────
+(function(){
+  const ch = ec('c-dist');
+  const rev = (a) => [...a].reverse();
+  ch.setOption({
+    grid: grid(8,60,8,8),
+    tooltip: {...tip, trigger:'axis', formatter:p=>`${p[0].name}<br/><b>${p[0].value} listings</b>`},
+    xAxis: axXV(),
+    yAxis: {type:'category', data:rev(D.districts.labels),
+      axisLine:{show:false}, axisTick:{show:false},
+      axisLabel:{color:C.MID,fontSize:10.5}},
+    series:[{
+      type:'bar', data:rev(D.districts.counts), barWidth:'60%',
+      itemStyle:{borderRadius:[0,4,4,0],
+        color:{type:'linear',x:0,y:0,x2:1,y2:0,
+          colorStops:[{offset:0,color:C.B+'aa'},{offset:1,color:C.B}]}},
+      label:{show:true,position:'right',color:C.MID,fontSize:10,
+        formatter:'{c}'},
+    }],
+  });
+})();
+
+// ── 4. Property type donut ────────────────────────────────────────────────
+(function(){
+  const ch = ec('c-ptype');
+  const total = D.property_types.reduce((s,d)=>s+d.value,0);
+  ch.setOption({
+    tooltip:{...tip, trigger:'item',
+      formatter:p=>`${p.name}<br/><b>${p.value} listings (${p.percent}%)</b>`},
+    legend:{bottom:0,left:'center',textStyle:{color:C.MID,fontSize:10},itemWidth:10,itemHeight:10},
+    series:[{
+      type:'pie', radius:['42%','70%'],
+      center:['50%','44%'],
+      data: D.property_types,
+      label:{show:false},
+      emphasis:{scaleSize:4},
+      itemStyle:{borderRadius:4,borderColor:'#fff',borderWidth:2},
+    }],
+    graphic:[{type:'text',left:'center',top:'38%',style:{
+      text:total.toLocaleString(),fill:C.DARK,
+      font:'bold 20px Inter,sans-serif',
+    }},{type:'text',left:'center',top:'47%',style:{
+      text:'listings',fill:C.SOFT,font:'11px Inter,sans-serif',
+    }}],
+  });
+})();
+
+// ── 5. Furnished donut ────────────────────────────────────────────────────
+(function(){
+  const ch = ec('c-furn');
+  const total = D.furnished.reduce((s,d)=>s+d.value,0);
+  ch.setOption({
+    tooltip:{...tip, trigger:'item',
+      formatter:p=>`${p.name}<br/><b>${p.value} listings (${p.percent}%)</b>`},
+    legend:{bottom:0,left:'center',textStyle:{color:C.MID,fontSize:10},itemWidth:10,itemHeight:10},
+    series:[{
+      type:'pie', radius:['42%','70%'],
+      center:['50%','44%'],
+      data: D.furnished,
+      label:{show:false},
+      emphasis:{scaleSize:4},
+      itemStyle:{borderRadius:4,borderColor:'#fff',borderWidth:2},
+    }],
+    graphic:[{type:'text',left:'center',top:'38%',style:{
+      text:total.toLocaleString(),fill:C.DARK,
+      font:'bold 20px Inter,sans-serif',
+    }},{type:'text',left:'center',top:'47%',style:{
+      text:'with data',fill:C.SOFT,font:'11px Inter,sans-serif',
+    }}],
+  });
+})();
+
+// ── 6. Heatmap ────────────────────────────────────────────────────────────
+(function(){
+  const ch = ec('c-heat');
+  const rooms = D.heatmap.rooms;
+  const dists = D.heatmap.districts;
+  // build full matrix (fill nulls)
+  const full = [];
+  for(let i=0;i<dists.length;i++)
+    for(let j=0;j<rooms.length;j++){
+      const pt = D.heatmap.data.find(d=>d[0]===j&&d[1]===i);
+      full.push(pt ? [j,i,pt[2],pt[3]] : [j,i,null,0]);
+    }
+  ch.setOption({
+    grid: grid(14,100,12,12),
+    tooltip:{...tip, formatter:p=>{
+      if(!p.data[2]) return `${dists[p.data[1]]} / ${rooms[p.data[0]]}<br/>No data`;
+      return `${dists[p.data[1]]} &amp; ${rooms[p.data[0]]}<br/><b>Median $${p.data[2]}</b><br/>n = ${p.data[3]} listings`;
+    }},
+    visualMap:{
+      min:D.heatmap.min, max:D.heatmap.max,
+      calculable:true, orient:'vertical',
+      right:8, top:'middle',
+      inRange:{color:['#EFF6FF','#BFDBFE','#3B82F6','#1D4ED8','#1E3A8A']},
+      textStyle:{color:C.MID,fontSize:10},
+      formatter:v=>'$'+Math.round(v),
+    },
+    xAxis:{type:'category',data:rooms,
+      axisLine:{show:false},axisTick:{show:false},
+      axisLabel:{color:C.DARK,fontWeight:'600',fontSize:12},
+      position:'top',
+    },
+    yAxis:{type:'category',data:dists,
+      axisLine:{show:false},axisTick:{show:false},
+      axisLabel:{color:C.MID,fontSize:10.5},
+    },
+    series:[{
+      type:'heatmap',
+      data: full.filter(d=>d[2]!==null),
+      label:{show:true,
+        formatter:p=>`$${p.data[2]}\nn=${p.data[3]}`,
+        color:null, // overridden below
+        fontSize:11, fontWeight:'600',
+      },
+      emphasis:{itemStyle:{shadowBlur:8,shadowColor:'rgba(0,0,0,.2)'}},
+      itemStyle:{borderRadius:4,borderColor:'#EEF2FF',borderWidth:2},
+    }],
+  });
+  // white label on dark cells
+  const opt = ch.getOption();
+  opt.series[0].label.color = (params)=>{
+    const v = params.data[2];
+    return v > D.heatmap.max*0.55 ? '#fff' : C.DARK;
+  };
+  ch.setOption(opt);
+})();
+
+// ── 7. Furnished premium grouped bar ──────────────────────────────────────
+(function(){
+  const ch = ec('c-fprm');
+  const mk = (name, data, color) => ({
+    type:'bar', name, data, barGap:'6%', barCategoryGap:'35%',
+    itemStyle:{borderRadius:[3,3,0,0],color},
+    label:{show:false},
+  });
+  ch.setOption({
+    grid: grid(32,16,36,20),
+    tooltip:{...tip, trigger:'axis',
+      formatter:params=>{
+        let s=`<b>${params[0].axisValueLabel}</b><br/>`;
+        params.forEach(p=>{if(p.value)s+=`${p.marker}${p.seriesName}: <b>$${p.value}</b><br/>`;});
+        return s;
+      }},
+    legend:{top:4,right:8,textStyle:{color:C.MID,fontSize:10},itemWidth:10,itemHeight:10},
+    xAxis: axX(D.furnished_premium.rooms),
+    yAxis: axY('USD/mo'),
+    series:[
+      mk('Fully Furnished', D.furnished_premium.full,    C.G),
+      mk('Partial',         D.furnished_premium.partial, C.A),
+      mk('Not stated',      D.furnished_premium.none,    C.S),
+    ],
+  });
+})();
+
+// ── 8. Electricity histogram ──────────────────────────────────────────────
+(function(){
+  const ch = ec('c-elec');
+  if(!D.elec.bins.length){ch.setOption({title:{text:'No data',left:'center',top:'middle',textStyle:{color:C.SOFT}}});return;}
+  ch.setOption({
+    grid: grid(28,16,36,20),
+    tooltip:{...tip, trigger:'axis',
+      formatter:p=>`$${p[0].name}/kWh<br/><b>${p[0].value} listings</b>`},
+    xAxis: axX(D.elec.bins, 30),
+    yAxis: axY('Count'),
+    series:[{
+      type:'bar', data:D.elec.counts, barWidth:'80%',
+      itemStyle:{color:C.A, borderRadius:[3,3,0,0]},
+      markLine:{silent:true,animation:false,data:[{
+        xAxis:D.elec.median+'',
+        lineStyle:{color:C.R,width:2,type:'dashed'},
+        label:{formatter:'Median\n$'+D.elec.median,color:C.R,fontSize:10,fontWeight:'600'},
+        symbol:'none',
+      }]},
+    }],
+  });
+})();
+
+// ── 9. Quality bar ────────────────────────────────────────────────────────
+(function(){
+  const ch = ec('c-qual');
+  const Q = D.quality;
+  ch.setOption({
+    grid: grid(28,16,36,20),
+    tooltip:{...tip, trigger:'axis',formatter:p=>`${p[0].name}<br/><b>${p[0].value} listings</b>`},
+    xAxis: axX(['High\n≥0.8','Med\n0.6–0.8','Low\n<0.6']),
+    yAxis: axY('Count'),
+    series:[{
+      type:'bar', data:[
+        {value:Q.high, itemStyle:{color:C.G,borderRadius:[4,4,0,0]}},
+        {value:Q.med,  itemStyle:{color:C.A,borderRadius:[4,4,0,0]}},
+        {value:Q.low,  itemStyle:{color:C.R,borderRadius:[4,4,0,0]}},
+      ],
+      label:{show:true,position:'top',color:C.MID,fontSize:10,fontWeight:'600'},
+    }],
+    graphic:[{type:'text',right:12,top:8,style:{
+      text:'⚠ '+Q.flagged+' flagged',fill:C.R,
+      font:'600 11px Inter,sans-serif',
+    }}],
+  });
+})();
+</script>
+</body>
+</html>
+"""
+
+
+def generate():
+    print("Extracting data from database…")
+    data = _extract()
+    html = _HTML.replace("__DATA__", json.dumps(data, ensure_ascii=False))
     os.makedirs(os.path.dirname(os.path.abspath(OUT_PATH)), exist_ok=True)
-    plt.savefig(OUT_PATH, dpi=150, bbox_inches="tight", facecolor=BG)
+    with open(OUT_PATH, "w", encoding="utf-8") as f:
+        f.write(html)
     print(f"✅ Saved → {OUT_PATH}")
-    plt.show()
+    webbrowser.open(f"file://{OUT_PATH}")
 
 
 def main():
-    data, monthly = load_data()
-    print(f"Loaded {len(data):,} listings")
-    plot(data, monthly)
+    generate()
 
 
 if __name__ == "__main__":
