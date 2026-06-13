@@ -374,7 +374,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14
   </div>
   <div class="card">
     <div class="card-t">Avg Rent by Room Type</div>
-    <div class="card-s">Mean USD / month &nbsp;·&nbsp; error bars = ±1 std dev &nbsp;·&nbsp; n = sample size</div>
+    <div class="card-s">Mean USD / month &nbsp;·&nbsp; n = sample size</div>
     <div id="c-roomavg" style="height:280px"></div>
   </div>
 </div>
@@ -522,62 +522,31 @@ function ec(id){ return echarts.init(document.getElementById(id),null,{renderer:
 // ── 2. Avg rent by room type ──────────────────────────────────────────────
 (function(){
   const ch = ec('c-roomavg');
-  const R   = D.room_avg;
+  const R  = D.room_avg;
   const ROOM_PAL = [C.P, C.B, C.G, C.A, C.R];
-  // error bar data: [avg - std, avg + std]
-  const errData = R.labels.map((_,i) =>
-    R.avgs[i] != null ? [R.avgs[i] - R.stds[i], R.avgs[i] + R.stds[i]] : [0,0]
-  );
+  const maxAvg = Math.max(...R.avgs.filter(v=>v!=null));
   ch.setOption({
-    grid: grid(32,16,36,20),
+    grid: grid(52,16,36,20),
     tooltip:{...tip, trigger:'axis',
-      formatter:params=>{
-        const i = params[0].dataIndex;
+      formatter:p=>{
+        const i=p[0].dataIndex;
         if(R.avgs[i]==null) return R.labels[i]+': No data';
-        return `<b>${R.labels[i]}</b><br/>
-                Avg: <b>$${R.avgs[i].toLocaleString()}</b><br/>
-                Std: ±$${R.stds[i]}<br/>
-                n = ${R.counts[i]} listings`;
+        return `<b>${R.labels[i]}</b><br/>Avg: <b>$${R.avgs[i].toLocaleString()}</b><br/>n = ${R.counts[i]} listings`;
       }},
     xAxis: axX(R.labels),
-    yAxis: axY('USD / month'),
-    series:[
-      {
-        type:'bar', data: R.avgs, barWidth:'52%',
-        itemStyle:{borderRadius:[4,4,0,0],
-          color:(p)=>ROOM_PAL[p.dataIndex]+'cc'},
-        label:{show:false},
-      },
-      {
-        type:'custom', name:'Error',
-        renderItem(params, api){
-          const xVal  = api.value(0);
-          const lo    = api.value(1);
-          const hi    = api.value(2);
-          const x     = api.coord([xVal, 0])[0];
-          const yLo   = api.coord([0, lo])[1];
-          const yHi   = api.coord([0, hi])[1];
-          const w     = 6;
-          return {type:'group', children:[
-            {type:'line',shape:{x1:x,y1:yLo,x2:x,y2:yHi},style:{stroke:C.DARK,lineWidth:1.8}},
-            {type:'line',shape:{x1:x-w,y1:yLo,x2:x+w,y2:yLo},style:{stroke:C.DARK,lineWidth:1.8}},
-            {type:'line',shape:{x1:x-w,y1:yHi,x2:x+w,y2:yHi},style:{stroke:C.DARK,lineWidth:1.8}},
-          ]};
+    yAxis: {...axY('USD / month'), max: Math.ceil(maxAvg*1.28/100)*100},
+    series:[{
+      type:'bar', data:R.avgs, barWidth:'52%',
+      itemStyle:{borderRadius:[5,5,0,0], color:p=>ROOM_PAL[p.dataIndex]},
+      label:{
+        show:true, position:'top',
+        formatter:p=>{
+          const i=p.dataIndex;
+          return R.avgs[i]!=null ? `$${R.avgs[i].toLocaleString()}\nn=${R.counts[i]}` : '';
         },
-        data: R.labels.map((_,i)=>[i, errData[i][0], errData[i][1]]),
-        z:10,
+        color:C.MID, fontSize:10, fontWeight:'600', lineHeight:16,
       },
-      {
-        type:'scatter', symbol:'none',
-        data: R.labels.map((_,i)=>[i, R.avgs[i]]),
-        label:{show:true, position:'top', distance:14,
-          formatter:p=>{
-            const i=p.dataIndex;
-            return R.avgs[i]!=null ? `$${R.avgs[i].toLocaleString()}\nn=${R.counts[i]}` : '';
-          },
-          color:C.MID, fontSize:10, fontWeight:'600', lineHeight:14},
-      },
-    ],
+    }],
   });
 })();
 
