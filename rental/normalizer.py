@@ -43,6 +43,9 @@ DISTRICT_ALIASES = {
     "bkk2/3":                "BKK2",
     "bkk3":                  "BKK3",
     "bkk 3":                 "BKK3",
+    "boeung keng kang 3":    "BKK3",
+    "beung keng kang 3":     "BKK3",
+    "beung keng kang 3":     "BKK3",
 
     # Saen Sokh (official)
     "sen sok":               "Saen Sokh",
@@ -53,6 +56,8 @@ DISTRICT_ALIASES = {
     "teok thla":             "Saen Sokh",
     "tuek thla":             "Saen Sokh",
     "tuek tla":              "Saen Sokh",
+    "amory sen sok":         "Saen Sokh",
+    "borei senchey":         "Saen Sokh",
 
     # Toul Tumpung — sangkat in Chamkar Mon
     "toul tumpung":          "Toul Tumpung",
@@ -61,6 +66,9 @@ DISTRICT_ALIASES = {
     "toul tompuong":         "Toul Tumpung",
     "toul tompung":          "Toul Tumpung",
     "toul tom pong":         "Toul Tumpung",
+    "toul tum poung":        "Toul Tumpung",
+    "toul tom poung":        "Toul Tumpung",
+    "toul pong":             "Toul Tumpung",
     "ttp":                   "Toul Tumpung",
 
     # Chamkar Mon (official)
@@ -68,6 +76,7 @@ DISTRICT_ALIASES = {
     "chamkarmorn":           "Chamkar Mon",
     "chamkar morn":          "Chamkar Mon",
     "chamkarmon":            "Chamkar Mon",
+    "chamkamon":             "Chamkar Mon",
 
     # Tonle Bassac — sangkat in Chamkar Mon
     "tonle bassac":          "Tonle Bassac",
@@ -77,6 +86,8 @@ DISTRICT_ALIASES = {
     # Mean Chey (official)
     "meanchey":              "Mean Chey",
     "steung meanchey":       "Mean Chey",
+    "stung mean chey":       "Mean Chey",
+    "khan mean chey":        "Mean Chey",
 
     # Chraoy Chongvar (official)
     "chroy changva":         "Chraoy Chongvar",
@@ -85,32 +96,64 @@ DISTRICT_ALIASES = {
     "chroy chongvar":        "Chraoy Chongvar",
     "chongva":               "Chraoy Chongvar",
     "chong var":             "Chraoy Chongvar",
+    "chroy chongva":         "Chraoy Chongvar",
+    "khan chrouy changva":   "Chraoy Chongvar",
 
     # Doun Penh (official)
     "daun penh":             "Doun Penh",
     "doun penh":             "Doun Penh",
 
-    # Prampir Meakkakra (official; aka 7 Makara)
+    # Prampir Meakkakra (official; aka 7 Makara / 7th January)
     "7 makara":              "Prampir Meakkakra",
     "prampir meakkakra":     "Prampir Meakkakra",
+    "7th january":           "Prampir Meakkakra",
 
     # Russey Keo (official)
     "russei keo":            "Russey Keo",
 
     # Chbar Ampov (official)
     "chbar ampve":           "Chbar Ampov",
+    "chbar ompov":           "Chbar Ampov",
+
+    # Pou Saen Chey (official; aka Por Sen Chey)
+    "por sen chey":          "Pou Saen Chey",
+
+    # Preaek Pnov (official)
+    "preak pnow":            "Preaek Pnov",
+    "preak pnov":            "Preaek Pnov",
+
+    # Dangkao (official)
+    "dangkor":               "Dangkao",
 
     # Boeng Keng Kang — the Khan itself (distinct from BKK1/2/3 sangkats)
     "boeng keng kang":       "Boeng Keng Kang",
     "boeung keng kang":      "Boeng Keng Kang",
+    "boeng keng kong":       "Boeng Keng Kang",
 
     # Sangkats
     "boek kak 2":            "Boeng Kok",
+    "boeung kak 2":          "Boeng Kok",
+    "boeung kak 1":          "Boeng Kok",
+    "beung kak 1":           "Boeng Kok",
+    "boeng kak 1":           "Boeng Kok",
     "boeung trobek":         "Boeung Trobek",
     "boeng trobek":          "Boeung Trobek",
     "boeng trabaek":         "Boeung Trobek",
     "beong sneur":           "Boeung Snor",
     "beong snor":            "Boeung Snor",
+    "boeng snor":            "Boeung Snor",
+    "peng huot":             "Boeung Snor",
+    "peng houth beurng snor":        "Boeung Snor",
+    "borey peng huoth boeung snor":  "Boeung Snor",
+    "boeung tumpun":         "Boeung Tumpun",
+    "boeung tompun":         "Boeung Tumpun",
+    "beong tompun":          "Boeung Tumpun",
+    "niroth":                "Nirouth",
+    "khos pich":             "Koh Pich",
+    "chamkar dong":          "Chamkar Doung",
+    "chak ongrae":           "Chak Angrae Leu",
+    "chak angrae kroam":     "Chak Angrae Kraom",
+    "daeum thkov":           "Phsar Daeum Thkov",
     "khmuonn":               "Khmuon",
     "boeng reang":           "Boeng Reang",
 }
