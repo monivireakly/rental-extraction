@@ -5,6 +5,14 @@ import sqlite3
 import uuid
 
 from .config import settings
+from .normalizer import (
+    normalise_city,
+    normalise_district,
+    normalise_furnished,
+    normalise_property_name,
+    normalise_property_type,
+    normalise_room,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -463,6 +471,14 @@ def mark_needs_review(listing_hash):
 # ── Listings ──────────────────────────────────────────────────────────────────
 
 def insert_listing(listing_id, listing_hash, data, posted_at=None):
+    # normalise before insert — district first, city depends on it
+    _district  = normalise_district(data.get("district"))
+    _city      = normalise_city(data.get("city", "Phnom Penh"), data.get("landmark"), _district)
+    _room      = normalise_room(data.get("room_type"))
+    _furnished = normalise_furnished(data.get("furnished_status"))
+    _ptype     = normalise_property_type(data.get("property_type"))
+    _pname     = normalise_property_name(data.get("property_name"))
+
     conn = get_connection()
     try:
         conn.execute(
@@ -478,15 +494,15 @@ def insert_listing(listing_id, listing_hash, data, posted_at=None):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 listing_id, listing_hash, posted_at,
-                data.get("property_type"),
-                data.get("property_name"),
+                _ptype,
+                _pname,
                 data.get("unit_code"),
-                data.get("city", "Phnom Penh"),
-                data.get("district"),
+                _city,
+                _district,
                 data.get("landmark"),
-                data.get("room_type"),
+                _room,
                 data.get("floor"),
-                data.get("furnished_status"),
+                _furnished,
                 data.get("rent_usd"),
                 data.get("management_fee_usd"),
                 data.get("electricity_per_kwh"),
@@ -508,7 +524,12 @@ def insert_listing(listing_id, listing_hash, data, posted_at=None):
     finally:
         conn.close()
 
-    _record_price_if_changed(listing_id, listing_hash, data)
+    _record_price_if_changed(listing_id, listing_hash, {
+        **data,
+        "property_name": _pname,
+        "district": _district,
+        "room_type": _room,
+    })
 
 
 # ── Price history ─────────────────────────────────────────────────────────────
