@@ -43,10 +43,6 @@ def _extract():
                needs_review, posted_at
         FROM listings
     """).fetchall()
-    monthly = conn.execute("""
-        SELECT strftime('%Y-%m', posted_at) mo, COUNT(*) n
-        FROM listings WHERE posted_at IS NOT NULL GROUP BY 1 ORDER BY 1
-    """).fetchall()
     conn.close()
 
     records = []
@@ -78,7 +74,6 @@ def _extract():
             dist_counts[r["district"]] += 1
     top_dist  = max(dist_counts, key=dist_counts.get, default="—")
     top14     = sorted(dist_counts.items(), key=lambda x: x[1], reverse=True)[:14]
-    top10_keys = [k for k, _ in sorted(dist_counts.items(), key=lambda x: x[1], reverse=True)[:10]]
 
     # Rent histogram
     hc, he = np.histogram(rents, bins=40, range=(100, 4500))
@@ -90,18 +85,6 @@ def _extract():
 
     # Room type averages + std
     rv = {r: [d["rent"] for d in records if d["room"] == r and d["rent"]] for r in ROOM_ORDER}
-
-    # Heatmap
-    heat_rooms = ["Studio", "1BR", "2BR", "3BR"]
-    hm_data = []
-    for i, dist in enumerate(top10_keys):
-        for j, room in enumerate(heat_rooms):
-            vals = [d["rent"] for d in records
-                    if d["district"] == dist and d["room"] == room and d["rent"]]
-            if vals:
-                hm_data.append([j, i, int(np.median(vals)), len(vals)])
-
-    hm_vals = [x[2] for x in hm_data]
 
     # Furnished premium (grouped bar)
     fp_full    = [int(np.mean([d["rent"] for d in records if d["room"]==r and d["furnished"]=="Full"    and d["rent"]]) or 0)
@@ -116,7 +99,6 @@ def _extract():
 
     # Electricity histogram
     ev = [r["elec"] for r in records if r["elec"] and 0.05 < r["elec"] < 0.5]
-    ec2, ee2 = (np.histogram(ev, bins=16), ev) if ev else ((np.array([]), np.array([])), ev)
     if ev:
         ec_counts, ee2 = np.histogram(ev, bins=16)
         ec_bins = [round((ee2[i] + ee2[i+1]) / 2, 3) for i in range(len(ec_counts))]
@@ -151,10 +133,6 @@ def _extract():
             "counts": [len(rv[r]) for r in ROOM_ORDER],
             "stds":   [int(np.std(rv[r])) if len(rv[r]) > 1 else 0 for r in ROOM_ORDER],
         },
-        "monthly": {
-            "labels": [m["mo"][5:] + "/" + m["mo"][2:4] for m in monthly],
-            "counts": [m["n"] for m in monthly],
-        },
         "districts": {
             "labels": [k for k, _ in top14],
             "counts": [v for _, v in top14],
@@ -169,13 +147,6 @@ def _extract():
                                      "Unfurnished": "#94A3B8"}.get(k, "#94A3B8")}}
             for k, v in furn_cnt.items() if v > 0
         ],
-        "heatmap": {
-            "districts": top10_keys,
-            "rooms":     heat_rooms,
-            "data":      hm_data,
-            "min":       min(hm_vals) if hm_vals else 0,
-            "max":       max(hm_vals) if hm_vals else 0,
-        },
         "furnished_premium": {
             "rooms":   ROOM_ORDER,
             "full":    fp_full,

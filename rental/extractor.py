@@ -90,3 +90,13 @@ def extract_listing(raw_text):
         getattr(message.usage, "cache_read_input_tokens", 0),
     )
     return data
+
+
+if __name__ == "__main__":
+    import json
+    import sys
+    text = sys.stdin.read().strip() if len(sys.argv) < 2 else " ".join(sys.argv[1:])
+    if not text:
+        print("Usage: echo 'listing text' | python3 -m rental.extractor", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps(extract_listing(text), indent=2))

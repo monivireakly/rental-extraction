@@ -767,8 +767,6 @@ def insert_property_profile(building_key, canonical_listing_id, data):
         conn.close()
 
 
-# ── Price history ─────────────────────────────────────────────────────────────
-
 # ── Channels ─────────────────────────────────────────────────────────────────
 
 def register_channel(username):

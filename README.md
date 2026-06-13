@@ -1,6 +1,6 @@
 # Phnom Penh Rental Listing Bot
 
-A Telegram bot that ingests raw rental listings from public Telegram channels, extracts structured data using the Claude API, and stores everything in a local SQLite database. Includes a channel crawler, a data normalisation agent, a property research agent, and a matplotlib insights dashboard.
+A Telegram bot that ingests raw rental listings from public Telegram channels, extracts structured data using the Claude API, and stores everything in a local SQLite database. Includes a channel crawler, a data normalisation agent, a property research agent, and an ECharts HTML insights dashboard.
 
 ---
 
@@ -15,19 +15,20 @@ rental-extraction/
 │   ├── extractor.py           # Claude extraction (listing → structured JSON)
 │   ├── normalizer.py          # district / room type cleaning agent
 │   ├── researcher.py          # property enrichment agent (profiles + descriptions)
-│   ├── insights.py            # matplotlib dashboard
+│   ├── insights.py            # ECharts HTML dashboard
 │   ├── config.py              # Pydantic settings (single source of truth)
 │   └── prompts/
 │       ├── extraction.py      # extraction system prompt
 │       └── research.py        # property research system prompt
-├── .claude/commands/          # Claude Code slash commands
+├── .claude/skills/            # Claude Code slash commands
 │   ├── bot.md                 # /bot
 │   ├── crawl.md               # /crawl
 │   ├── normalize.md           # /normalize
 │   ├── research.md            # /research
 │   ├── insights.md            # /insights
-│   └── db.md                  # /db
-├── data/                      # SQLite db + chart output (gitignored)
+│   ├── db.md                  # /db
+│   └── run-rental-extraction/ # /run-rental-extraction (smoke driver)
+├── data/                      # SQLite db + dashboard output (gitignored)
 ├── main.py                    # entry point
 ├── requirements.txt
 ├── railway.toml
@@ -52,7 +53,7 @@ pip install -r requirements.txt
 |---|---|---|---|
 | `TELEGRAM_BOT_TOKEN` | Yes | — | From [@BotFather](https://t.me/BotFather) |
 | `ANTHROPIC_API_KEY` | Yes | — | From [console.anthropic.com](https://console.anthropic.com) |
-| `TELEGRAM_CHANNELS` | Yes | — | Comma-separated channel names e.g. `condoapartmentincambodia,channel2` |
+| `TELEGRAM_CHANNELS` | No | `condoapartmentincambodia` | Comma-separated channel names |
 | `DATABASE_PATH` | No | `./data/listings.db` | Path to SQLite file |
 | `CRAWL_INTERVAL_HOURS` | No | `6` | How often the bot auto-crawls channels |
 | `CRAWL_PAGES_PER_RUN` | No | `3` | Pages per channel per scheduled run |
@@ -65,7 +66,7 @@ pip install -r requirements.txt
 python3 main.py
 ```
 
-The bot starts polling and schedules an automatic crawl 30 seconds after launch, then every `CRAWL_INTERVAL_HOURS` hours.
+The bot starts polling and auto-crawls channels every `CRAWL_INTERVAL_HOURS` hours.
 
 ---
 
@@ -74,10 +75,12 @@ The bot starts polling and schedules an automatic crawl 30 seconds after launch,
 | Command | Description |
 |---|---|
 | `/start` | Welcome message |
-| `/crawl` | Crawl all channels, 1 page each |
-| `/crawl 5` | Crawl all channels, 5 pages each |
-| `/crawl condoapartmentincambodia` | Crawl one channel, 1 page |
-| `/crawl condoapartmentincambodia 10` | Crawl one channel, 10 pages |
+| `/crawl <channel>` | Crawl one channel, 1 page |
+| `/crawl <channel> 5` | Crawl one channel, 5 pages |
+| `/crawlall` | Crawl all registered channels, default pages each |
+| `/crawlall 5` | Crawl all channels, 5 pages each |
+| `/fixcity` | Dry-run: show listings with wrong city classification |
+| `/fixcity apply` | Apply city corrections to the database |
 
 You can also paste any listing text directly into the bot — it extracts and saves it on the spot.
 
@@ -86,6 +89,10 @@ You can also paste any listing text directly into the bot — it extracts and sa
 ## CLI commands
 
 ```bash
+# Extract a single listing (calls Claude API, prints JSON)
+echo "listing text here" | python3 -m rental.extractor
+python3 -m rental.extractor "1BR condo BKK1 Phnom Penh 400USD/month"
+
 # Crawl channels
 python3 -m rental.crawler --pages 10
 python3 -m rental.crawler --channel condoapartmentincambodia --pages 5
@@ -99,7 +106,7 @@ python3 -m rental.researcher --dry-run     # preview pending buildings
 python3 -m rental.researcher --limit 20    # research up to 20 buildings
 python3 -m rental.researcher               # research all pending
 
-# Generate insights dashboard → saved to data/insights.png
+# Generate insights dashboard → saved to data/insights.html
 python3 -m rental.insights
 ```
 
@@ -117,6 +124,7 @@ If you're developing with [Claude Code](https://claude.ai/code), slash commands 
 | `/insights` | Generate and display the dashboard |
 | `/bot` | Validate env and start the bot |
 | `/db [district\|rent\|review]` | Database health check |
+| `/run-rental-extraction` | Smoke-test the full extraction pipeline |
 
 ---
 
@@ -139,7 +147,7 @@ Telegram channel
                     year built, developer, building type, and a
                     distinct description → property_profiles table
       ↓
-  insights.py     — matplotlib dashboard from clean data
+  insights.py     — ECharts HTML dashboard from clean data
 ```
 
 ---

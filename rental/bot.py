@@ -30,7 +30,6 @@ def _format_reply(data, needs_review):
     confidence = data.get("extraction_confidence", 0)
 
     prop = data.get("property_name") or "Unknown"
-    borey = data.get("borey_name") or ""
     location = data.get("district") or data.get("landmark") or "Location unknown"
     room = data.get("room_type") or "?"
     furnished = data.get("furnished_status") or "?"
@@ -39,7 +38,7 @@ def _format_reply(data, needs_review):
 
     return (
         f"✅ Saved\n\n"
-        f"🏠 {prop} {borey}\n"
+        f"🏠 {prop}\n"
         f"📍 {location}\n"
         f"🛏 {room} | {furnished}\n\n"
         f"💵 Rent:        {rent}\n"

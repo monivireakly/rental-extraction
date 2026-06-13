@@ -9,7 +9,6 @@ Usage:
 import argparse
 import hashlib
 import logging
-import os
 import time
 import uuid
 from datetime import datetime, timezone, timedelta
