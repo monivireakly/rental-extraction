@@ -154,6 +154,7 @@ def backfill_property_type(dry_run=False):
 
     for row in rows:
         name     = row["property_name"]
+        district = row["district"]
         btype    = row["building_type"]
         count    = row["listing_count"]
         source   = None
@@ -186,6 +187,8 @@ def backfill_property_type(dry_run=False):
 
         if not dry_run:
             updated = db.bulk_update_property_type(name, ptype)
+            building_key = db.make_building_key(name, district)
+            db.upsert_profile_building_type(building_key, ptype)
             if source == "profile":
                 from_profile += updated
             elif source == "keyword":

@@ -612,6 +612,65 @@ def bulk_update_property_type(property_name, property_type):
         conn.close()
 
 
+def upsert_profile_building_type(building_key, building_type):
+    """Insert a minimal property_profiles row or update building_type if the key already exists."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO property_profiles (id, building_key, building_type)
+            VALUES (lower(hex(randomblob(16))), ?, ?)
+            ON CONFLICT(building_key) DO UPDATE SET building_type = excluded.building_type
+            """,
+            (building_key, building_type),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def sync_property_type_to_profiles():
+    """
+    For every distinct (property_name, district) in listings that has a property_type
+    but no property_profiles row, insert a minimal profile row so future researcher
+    runs can skip the Claude classify step.
+    Returns the number of rows inserted/updated.
+    """
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO property_profiles (id, building_key, building_type)
+            SELECT
+                lower(hex(randomblob(16))),
+                building_key,
+                property_type
+            FROM (
+                SELECT
+                    LOWER(TRIM(COALESCE(property_name,''))) || '|' ||
+                    LOWER(TRIM(COALESCE(district,'')))    AS building_key,
+                    property_type,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY
+                            LOWER(TRIM(COALESCE(property_name,''))),
+                            LOWER(TRIM(COALESCE(district,'')))
+                        ORDER BY extracted_at DESC
+                    ) AS rn
+                FROM listings
+                WHERE property_type IS NOT NULL
+                  AND property_name IS NOT NULL
+                  AND TRIM(property_name) != ''
+            ) t
+            WHERE rn = 1
+            ON CONFLICT(building_key) DO UPDATE SET building_type = excluded.building_type
+            """
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
 def get_unresearched_buildings():
     """Return buildings that have listings but no profile yet."""
     conn = get_connection()
