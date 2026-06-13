@@ -8,7 +8,6 @@ Output schema:
 {
   "property_type": "Apartment" or "Condo" or "Service Apartment" or "Borey" or "Villa" or "Shophouse" or "Studio" or null,
   "property_name": string or null,
-  "borey_name": string or null,
   "unit_code": string or null,
   "city": string or null,
   "district": string or null,
@@ -32,7 +31,7 @@ Rules:
 - Numbers only for currency. Strip $, USD, ៛.
 - free or included means 0, not null.
 - null means not mentioned. Never guess.
-- property_type: classify from listing context. "Borey" if borey_name is present or text mentions Borey. "Service Apartment" if text mentions serviced or service apartment. "Condo" if text mentions condo/condominium. "Villa" if standalone house/villa. "Shophouse" if shophouse. "Studio" if studio unit with no separate bedroom. "Apartment" as default for standard rentals.
+- property_type: classify from listing context. "Borey" if text mentions Borey — use the Borey name as property_name. "Service Apartment" if text mentions serviced or service apartment. "Condo" if text mentions condo/condominium. "Villa" if standalone house/villa. "Shophouse" if shophouse. "Studio" if studio unit with no separate bedroom. "Apartment" as default for standard rentals.
 - city: infer from landmarks and context. Use "Siem Reap" if any of these appear: Pub Street, Angkor Market, Angkor Supermarket, Sala Kamreuk, Deum Kralanh, Taphul, Wat Bo, Bakheng, Heritage Walk, Svay Dangkum, Slor Kram. Default to "Phnom Penh" only if no Siem Reap indicators are present and city is not explicitly stated.
 - floor is integer parsed from unit codes e.g. F2-09 → 2.
 - amenities_excluded values are monthly costs. null if price not stated.
@@ -58,5 +57,5 @@ Beautiful L Residence Borey Keila For Rent
 </listing>
 
 Example output:
-{"property_type":"Condo","property_name":"L Residence","borey_name":"Borey Keila","unit_code":"F2-09","city":"Phnom Penh","district":null,"landmark":"Near Olympic Stadium","room_type":"1BR","floor":2,"furnished_status":"Full","rent_usd":300.00,"management_fee_usd":24.00,"electricity_per_kwh":0.25,"water_per_m3":0.75,"car_parking_usd":40.00,"motor_parking_usd":0,"amenities_included":{"motor_parking":true},"amenities_excluded":{"gym":45,"pool":45,"steam":45,"sauna":45,"car_parking":40},"extraction_confidence":0.95,"needs_review":false}
+{"property_type":"Condo","property_name":"L Residence","unit_code":"F2-09","city":"Phnom Penh","district":null,"landmark":"Near Olympic Stadium","room_type":"1BR","floor":2,"furnished_status":"Full","rent_usd":300.00,"management_fee_usd":24.00,"electricity_per_kwh":0.25,"water_per_m3":0.75,"car_parking_usd":40.00,"motor_parking_usd":0,"amenities_included":{"motor_parking":true},"amenities_excluded":{"gym":45,"pool":45,"steam":45,"sauna":45,"car_parking":40},"extraction_confidence":0.95,"needs_review":false}
 """

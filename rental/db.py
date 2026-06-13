@@ -312,8 +312,8 @@ def init_db():
                 extracted_at          DATETIME DEFAULT (datetime('now', '+7 hours')),
                 posted_at             DATETIME,
 
+                property_type         TEXT,
                 property_name         TEXT,
-                borey_name            TEXT,
                 unit_code             TEXT,
                 city                  TEXT DEFAULT 'Phnom Penh',
                 district              TEXT,
@@ -468,19 +468,18 @@ def insert_listing(listing_id, listing_hash, data, posted_at=None):
         conn.execute(
             """INSERT INTO listings (
                 id, listing_hash, posted_at,
-                property_type, property_name, borey_name, unit_code,
+                property_type, property_name, unit_code,
                 city, district, landmark,
                 room_type, floor, furnished_status,
                 rent_usd, management_fee_usd, electricity_per_kwh, water_per_m3,
                 car_parking_usd, motor_parking_usd,
                 amenities_included, amenities_excluded,
                 extraction_confidence, needs_review
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 listing_id, listing_hash, posted_at,
                 data.get("property_type"),
                 data.get("property_name"),
-                data.get("borey_name"),
                 data.get("unit_code"),
                 data.get("city", "Phnom Penh"),
                 data.get("district"),
