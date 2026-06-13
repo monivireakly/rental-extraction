@@ -317,10 +317,32 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14
 }
 .ftr strong{color:var(--mid)}
 
+/* ── Export button ── */
+.export-btn{
+  position:absolute;top:52px;right:0;
+  display:inline-flex;align-items:center;gap:8px;
+  background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);
+  color:#fff;font-family:var(--font);font-size:12px;font-weight:600;
+  padding:9px 18px;border-radius:8px;cursor:pointer;
+  transition:background .15s,transform .1s;letter-spacing:.02em;
+}
+.export-btn:hover{background:rgba(255,255,255,.22);transform:translateY(-1px)}
+.export-btn:active{transform:translateY(0)}
+.export-btn svg{width:14px;height:14px;flex-shrink:0}
+
 @media(max-width:960px){
   .kpi-row{grid-template-columns:repeat(2,1fr)}
   .g21,.g211,.g3{grid-template-columns:1fr}
   .main,.hdr{padding-left:20px;padding-right:20px}
+  .export-btn{position:static;margin-top:20px}
+}
+
+@media print{
+  .export-btn{display:none!important}
+  body{background:#fff}
+  .hdr{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .card,.heatmap-card{box-shadow:none;border:1px solid #E2E8F0}
+  @page{margin:.4in;size:A3 landscape}
 }
 </style>
 </head>
@@ -334,6 +356,13 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14
     <p class="hdr-sub">Data-driven insights from Telegram listing channels — prices, districts, trends</p>
     <div class="hdr-pills" id="hdr-pills"></div>
     <div class="hdr-date" id="hdr-date"></div>
+    <button class="export-btn" onclick="window.print()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 9V2h12v7"/><rect x="6" y="14" width="12" height="8" rx="1"/>
+        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+      </svg>
+      Save as PDF
+    </button>
   </div>
 </header>
 
