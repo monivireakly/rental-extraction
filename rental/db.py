@@ -23,10 +23,272 @@ def _migrate(conn):
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
             logger.info("Migrated: added %s.%s", table, column)
 
-    add_if_missing("raw_listings", "posted_at",     "DATETIME")
-    add_if_missing("listings",     "posted_at",     "DATETIME")
-    add_if_missing("channels",     "default_pages", "INTEGER DEFAULT 3")
+    add_if_missing("raw_listings", "posted_at",      "DATETIME")
+    add_if_missing("listings",     "posted_at",      "DATETIME")
+    add_if_missing("listings",     "property_type",  "TEXT")
+    add_if_missing("channels",     "default_pages",  "INTEGER DEFAULT 3")
     conn.commit()
+
+
+# ── Official Cambodia geo reference data (source: CambodiaProvinceList2025 / DistrictList2025) ──
+
+_PROVINCES = [
+    ("01", "បន្ទាយមានជ័យ", "Banteay Meanchey"),
+    ("02", "បាត់ដំបង", "Battambang"),
+    ("03", "កំពង់ចាម", "Kampong Cham"),
+    ("04", "កំពង់ឆ្នាំង", "Kampong Chhnang"),
+    ("05", "កំពង់ស្ពឺ", "Kampong Speu"),
+    ("06", "កំពង់ធំ", "Kampong Thom"),
+    ("07", "កំពត", "Kampot"),
+    ("08", "កណ្ដាល", "Kandal"),
+    ("09", "កោះកុង", "Koh Kong"),
+    ("10", "ក្រចេះ", "Kratie"),
+    ("11", "មណ្ឌលគិរី", "Mondul Kiri"),
+    ("12", "រាជធានីភ្នំពេញ", "Phnom Penh"),
+    ("13", "ព្រះវិហារ", "Preah Vihear"),
+    ("14", "ព្រៃវែង", "Prey Veng"),
+    ("15", "ពោធិ៍សាត់", "Pursat"),
+    ("16", "រតនគិរី", "Ratanak Kiri"),
+    ("17", "សៀមរាប", "Siem Reap"),
+    ("18", "ព្រះសីហនុ", "Sihanoukville"),
+    ("19", "ស្ទឹងត្រែង", "Stung Treng"),
+    ("20", "ស្វាយរៀង", "Svay Rieng"),
+    ("21", "តាកែវ", "Takeo"),
+    ("22", "ឧត្ដរមានជ័យ", "Otdar Meanchey"),
+    ("23", "កែប", "Kep"),
+    ("24", "ប៉ៃលិន", "Pailin"),
+    ("25", "ត្បូងឃ្មុំ", "Tboung Khmum"),
+]
+
+_DISTRICTS = [
+    ("01","0102","មង្គលបូរី","Mangkul Bourei"),
+    ("01","0103","ភ្នំស្រុក","Phnum Srok"),
+    ("01","0104","ព្រះនេត្រព្រះ","Preah Net Preah"),
+    ("01","0105","អូរជ្រៅ","Ou Chrov"),
+    ("01","0106","សិរីសោភ័ណ","Serei Saophoan"),
+    ("01","0107","ថ្មពួក","Thma Puok"),
+    ("01","0108","ស្វាយចេក","Svay Chek"),
+    ("01","0109","ម៉ាឡៃ","Malai"),
+    ("01","0110","ប៉ោយប៉ែត","Paoy Paet"),
+    ("02","0201","បាណន់","Banan"),
+    ("02","0202","ថ្មគោល","Thma Koul"),
+    ("02","0203","បាត់ដំបង","Battambang"),
+    ("02","0204","បវេល","Bavel"),
+    ("02","0205","ឯកភ្នំ","Aek Phnum"),
+    ("02","0206","មោងឫស្សី","Moung Ruessei"),
+    ("02","0207","រតនមណ្ឌល","Rotaknak Mundul"),
+    ("02","0208","សង្កែ","Sangkae"),
+    ("02","0209","សំឡូត","Samlout"),
+    ("02","0210","សំពៅលូន","Sampov Lun"),
+    ("02","0211","ភ្នំព្រឹក","Phnum Proek"),
+    ("02","0212","កំរៀង","Kamrieng"),
+    ("02","0213","គាស់ក្រឡ","Koas Krala"),
+    ("02","0214","រុក្ខគិរី","Rukh Kiri"),
+    ("03","0301","បាធាយ","Batheay"),
+    ("03","0302","ចំការលើ","Chamkar Leu"),
+    ("03","0303","ជើងព្រៃ","Cheung Prey"),
+    ("03","0305","កំពង់ចាម","Kampong Cham"),
+    ("03","0306","កំពង់សៀម","Kampong Siem"),
+    ("03","0307","កងមាស","Kang Meas"),
+    ("03","0308","កោះសូទិន","Kaoh Soutin"),
+    ("03","0313","ព្រៃឈរ","Prey Chhor"),
+    ("03","0314","ស្រីសន្ធរ","Srei Santhor"),
+    ("03","0315","ស្ទឹងត្រង់","Stueng Trang"),
+    ("04","0401","បរិបូណ៌","Baribour"),
+    ("04","0402","ជលគីរី","Chul Kiri"),
+    ("04","0403","កំពង់ឆ្នាំង","Kampong Chhnang"),
+    ("04","0404","កំពង់លែង","Kampong Leaeng"),
+    ("04","0405","កំពង់ត្រឡាច","Kampong Tralach"),
+    ("04","0406","រលាប្អៀរ","Rolea B'ier"),
+    ("04","0407","សាមគ្គីមានជ័យ","Sammeakki Mean Chey"),
+    ("04","0408","ទឹកផុស","Tuek Phos"),
+    ("05","0501","បរសេដ្ឋ","Basaed"),
+    ("05","0502","ច្បារមន","Chbar Mon"),
+    ("05","0503","គងពិសី","Kong Pisei"),
+    ("05","0504","ឱរ៉ាល់","Aoral"),
+    ("05","0506","ភ្នំស្រួច","Phnum Sruoch"),
+    ("05","0507","សំរោងទង","Samraong Tong"),
+    ("05","0508","ថ្ពង","Thpong"),
+    ("05","0509","ឧដុង្គម៉ែជ័យ","Odong Mae Chey"),
+    ("05","0510","សាមគ្គីមុនីជ័យ","Sammeakki Muni Chey"),
+    ("06","0601","បារាយណ៍","Baray"),
+    ("06","0602","កំពង់ស្វាយ","Kampong Svay"),
+    ("06","0603","ស្ទឹងសែន","Stueng Saen"),
+    ("06","0604","ប្រាសាទបល្ល័ង្គ","Prasat Ballang"),
+    ("06","0605","ប្រាសាទសំបូរ","Prasat Sambour"),
+    ("06","0606","សណ្ដាន់","Sandan"),
+    ("06","0607","សន្ទុក","Santuk"),
+    ("06","0608","ស្ទោង","Stoung"),
+    ("06","0609","តាំងគោក","Tang Kouk"),
+    ("07","0701","អង្គរជ័យ","Angkor Chey"),
+    ("07","0702","បន្ទាយមាស","Banteay Meas"),
+    ("07","0703","ឈូក","Chhuk"),
+    ("07","0704","ជុំគិរី","Chum Kiri"),
+    ("07","0705","ដងទង់","Dang Tung"),
+    ("07","0706","កំពង់ត្រាច","Kampong Trach"),
+    ("07","0707","ទឹកឈូ","Tuek Chhu"),
+    ("07","0708","កំពត","Kampot"),
+    ("07","0709","បូកគោ","Bouk Kou"),
+    ("08","0801","កណ្ដាលស្ទឹង","Kandal Stueng"),
+    ("08","0802","កៀនស្វាយ","Kien Svay"),
+    ("08","0803","ខ្សាច់កណ្ដាល","Khsach Kandal"),
+    ("08","0804","កោះធំ","Kaoh Thum"),
+    ("08","0805","លើកដែក","Leuk Daek"),
+    ("08","0806","ល្វាឯម","Lvea Aem"),
+    ("08","0807","មុខកំពូល","Mukh Kampul"),
+    ("08","0808","អង្គស្នួល","Angk Snuol"),
+    ("08","0809","ពញាឮ","Ponhea Lueu"),
+    ("08","0810","ស្អាង","S'ang"),
+    ("08","0811","តាខ្មៅ","Ta Khmau"),
+    ("08","0812","សំពៅពូន","Sampov Pun"),
+    ("08","0813","អរិយក្សត្រ","Akrey Ksat"),
+    ("09","0901","បុទុមសាគរ","Botum Sakor"),
+    ("09","0902","គិរីសាគរ","Kiri Sakor"),
+    ("09","0903","កោះកុង","Kaoh Kong"),
+    ("09","0904","ខេមរភូមិន្ទ","Khemmeakrakphumin"),
+    ("09","0905","មណ្ឌលសីមា","Mundul Seima"),
+    ("09","0906","ស្រែ អំបិល","Srae Ambel"),
+    ("09","0907","ថ្មបាំង","Thma Bang"),
+    ("10","1001","ឆ្លូង","Chhloung"),
+    ("10","1002","ក្រចេះ","Kracheh"),
+    ("10","1003","ព្រែកប្រសព្វ","Preaek Prasab"),
+    ("10","1004","សំបូរ","Sambour"),
+    ("10","1005","ស្នួល","Snuol"),
+    ("10","1006","ចិត្របុរី","Chet Borei"),
+    ("10","1007","អូរគ្រៀងសែនជ័យ","Ou Krieng Saen Chey"),
+    ("11","1101","កែវសីមា","Kaev Seima"),
+    ("11","1102","កោះញែក","Kaoh Nheaek"),
+    ("11","1103","អូររាំង","Ou Reang"),
+    ("11","1104","ពេជ្រាដា","Pechreada"),
+    ("11","1105","សែនមនោរម្យ","Saen Meaknourum"),
+    ("12","1201","ចំការមន","Chamkar Mon"),
+    ("12","1202","ដូនពេញ","Doun Penh"),
+    ("12","1203","៧មករា","Prampir Meakkakra"),
+    ("12","1204","ទួលគោក","Tuol Kouk"),
+    ("12","1205","ដង្កោ","Dangkao"),
+    ("12","1206","មានជ័យ","Mean Chey"),
+    ("12","1207","ឫស្សីកែវ","Russey Keo"),
+    ("12","1208","សែនសុខ","Saen Sokh"),
+    ("12","1209","ពោធិ៍សែនជ័យ","Pou Saen Chey"),
+    ("12","1210","ច្បារអំពៅ","Chbar Ampov"),
+    ("12","1211","ជ្រោយចង្វារ","Chraoy Chongvar"),
+    ("12","1212","ព្រែកព្នៅ","Preaek Pnov"),
+    ("12","1213","បឹងកេងកង","Boeng Keng Kang"),
+    ("12","1214","កំបូល","Kamboul"),
+    ("13","1301","ជ័យសែន","Chey Saen"),
+    ("13","1302","ឆែប","Chhaeb"),
+    ("13","1303","ជាំក្សាន្ដ","Choam Ksan"),
+    ("13","1304","គូលែន","Kuleaen"),
+    ("13","1305","រវៀង","Rovieng"),
+    ("13","1306","សង្គមថ្មី","Sangkum Thmei"),
+    ("13","1307","ត្បែងមានជ័យ","Tbaeng Mean Chey"),
+    ("13","1308","ព្រះវិហារ","Preah Vihear"),
+    ("14","1401","បាភ្នំ","Ba Phnum"),
+    ("14","1402","កំចាយមារ","Kamchay Mear"),
+    ("14","1403","កំពង់ត្របែក","Kampong Trabaek"),
+    ("14","1404","កញ្ជ្រៀច","Kanhchriech"),
+    ("14","1405","មេសាង","Me Sang"),
+    ("14","1406","ពាមជរ","Peam Chor"),
+    ("14","1407","ពាមរក៍","Peam Ro"),
+    ("14","1408","ពារាំង","Pea Reang"),
+    ("14","1409","ព្រះស្ដេច","Preah Sdach"),
+    ("14","1410","ព្រៃវែង","Prey Veng"),
+    ("14","1411","ពោធិ៍រៀង","Pur Rieng"),
+    ("14","1412","ស៊ីធរកណ្ដាល","Sithor Kandal"),
+    ("14","1413","ស្វាយអន្ទរ","Svay Antor"),
+    ("15","1501","បាកាន","Bakan"),
+    ("15","1502","កណ្ដៀង","Kandieng"),
+    ("15","1503","ក្រគរ","Krakor"),
+    ("15","1504","ភ្នំក្រវ៉ាញ","Phnum Kravanh"),
+    ("15","1505","ពោធិ៍សាត់","Pousat"),
+    ("15","1506","វាលវែង","Veal Veaeng"),
+    ("15","1507","តាលោសែនជ័យ","Ta Lou Soen Chey"),
+    ("16","1601","អណ្ដូងមាស","Andoung Meas"),
+    ("16","1602","បានលុង","Ban Lung"),
+    ("16","1603","បរកែវ","Bar Kaev"),
+    ("16","1604","កូនមុំ","Koun Mom"),
+    ("16","1605","លំផាត់","Lumphat"),
+    ("16","1606","អូរជុំ","Ou Chum"),
+    ("16","1607","អូរយ៉ាដាវ","Ou Ya Dav"),
+    ("16","1608","តាវែង","Ta Veaeng"),
+    ("16","1609","វើនសៃ","Veun Sai"),
+    ("17","1701","អង្គរជុំ","Angkor Chum"),
+    ("17","1702","អង្គរធំ","Angkor Thum"),
+    ("17","1703","បន្ទាយស្រី","Banteay Srei"),
+    ("17","1704","ជីក្រែង","Chi Kraeng"),
+    ("17","1706","ក្រឡាញ់","Kralanh"),
+    ("17","1707","ពួក","Puok"),
+    ("17","1709","ប្រាសាទបាគង","Prasat Bakong"),
+    ("17","1710","សៀមរាប","Siem Reab"),
+    ("17","1711","សូទ្រនិគម","Sout Nikum"),
+    ("17","1712","ស្រីស្នំ","Srei Snam"),
+    ("17","1713","ស្វាយលើ","Svay Leu"),
+    ("17","1714","វ៉ារិន","Varin"),
+    ("17","1715","រុនតាឯកតេជោសែន","Run Ta Aek Techou Saen"),
+    ("18","1801","ព្រះសីហនុ","Preah Sihanouk"),
+    ("18","1802","ព្រៃនប់","Prey Nub"),
+    ("18","1803","ស្ទឹងហាវ","Stueng Hav"),
+    ("18","1804","កំពង់សីលា","Kampong Seila"),
+    ("18","1805","កោះរ៉ុង","Kaoh Rung"),
+    ("18","1806","កំពង់សោម","Kampong Saom"),
+    ("19","1901","សេសាន","Sesan"),
+    ("19","1902","សៀមបូក","Siem Bouk"),
+    ("19","1903","សៀមប៉ាង","Siem Pang"),
+    ("19","1904","ស្ទឹងត្រែង","Stueng Traeng"),
+    ("19","1905","ថាឡាបរិវ៉ាត់","Thala Barivat"),
+    ("19","1906","បុរីអូរស្វាយសែនជ័យ","Borei Ou Svay Senchey"),
+    ("20","2001","ចន្ទ្រា","Chantrea"),
+    ("20","2002","កំពង់រោទិ៍","Kampong Rou"),
+    ("20","2003","រំដួល","Rumduol"),
+    ("20","2004","រមាសហែក","Romeas Haek"),
+    ("20","2005","ស្វាយជ្រំ","Svay Chrum"),
+    ("20","2006","ស្វាយរៀង","Svay Rieng"),
+    ("20","2007","ស្វាយទាប","Svay Teab"),
+    ("20","2008","បាវិត","Bavet"),
+    ("21","2101","អង្គរបូរី","Angkor Borei"),
+    ("21","2102","បាទី","Bati"),
+    ("21","2103","បូរីជលសារ","Bourei Chulsar"),
+    ("21","2104","គីរីវង់","Kiri Vung"),
+    ("21","2105","កោះអណ្ដែត","Kaoh Andaet"),
+    ("21","2106","ព្រៃកប្បាស","Prey Kabbas"),
+    ("21","2107","សំរោង","Samraong"),
+    ("21","2108","ដូនកែវ","Doun Kaev"),
+    ("21","2109","ត្រាំកក់","Tram Kak"),
+    ("21","2110","ទ្រាំង","Treang"),
+    ("22","2201","អន្លង់វែង","Anlung Veaeng"),
+    ("22","2202","បន្ទាយអំពិល","Banteay Ampil"),
+    ("22","2203","ចុងកាល់","Chong Kal"),
+    ("22","2204","សំរោង","Samraong"),
+    ("22","2205","ត្រពាំងប្រាសាទ","Trapeang Prasat"),
+    ("23","2301","ដំណាក់ចង្អើរ","Damnak Chang'aeu"),
+    ("23","2302","កែប","Kaeb"),
+    ("24","2401","ប៉ៃលិន","Pailin"),
+    ("24","2402","សាលាក្រៅ","Sala Krau"),
+    ("25","2501","តំបែរ","Dambae"),
+    ("25","2502","ក្រូចឆ្មារ","Krouch Chhmar"),
+    ("25","2503","មេមត់","Memut"),
+    ("25","2504","អូររាំងឪ","Ou Reang Ov"),
+    ("25","2505","ពញាក្រែក","Ponhea Kraek"),
+    ("25","2506","សួង","Suong"),
+    ("25","2507","ត្បូងឃ្មុំ","Tboung Khmum"),
+]
+
+
+def seed_geo_tables():
+    conn = get_connection()
+    try:
+        conn.executemany(
+            "INSERT OR IGNORE INTO provinces (province_code, province_kh, province_en) VALUES (?,?,?)",
+            _PROVINCES,
+        )
+        conn.executemany(
+            "INSERT OR IGNORE INTO geo_districts (province_code, district_code, district_kh, district_en) VALUES (?,?,?,?)",
+            _DISTRICTS,
+        )
+        conn.commit()
+        logger.info("Geo tables seeded: %d provinces, %d districts", len(_PROVINCES), len(_DISTRICTS))
+    finally:
+        conn.close()
 
 
 def init_db():
@@ -35,7 +297,7 @@ def init_db():
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS raw_listings (
                 listing_hash        TEXT PRIMARY KEY,
-                ingested_at         DATETIME DEFAULT (datetime('now')),
+                ingested_at         DATETIME DEFAULT (datetime('now', '+7 hours')),
                 posted_at           DATETIME,
                 source_platform     TEXT DEFAULT 'telegram',
                 raw_text            TEXT NOT NULL,
@@ -47,7 +309,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS listings (
                 id                    TEXT PRIMARY KEY,
                 listing_hash          TEXT REFERENCES raw_listings(listing_hash),
-                extracted_at          DATETIME DEFAULT (datetime('now')),
+                extracted_at          DATETIME DEFAULT (datetime('now', '+7 hours')),
                 posted_at             DATETIME,
 
                 property_name         TEXT,
@@ -80,7 +342,7 @@ def init_db():
                 listing_id      TEXT REFERENCES listings(id),
                 listing_hash    TEXT REFERENCES raw_listings(listing_hash),
                 rent_usd        REAL NOT NULL,
-                recorded_at     DATETIME DEFAULT (datetime('now'))
+                recorded_at     DATETIME DEFAULT (datetime('now', '+7 hours'))
             );
 
             CREATE INDEX IF NOT EXISTS idx_price_history_property_key
@@ -88,13 +350,26 @@ def init_db():
 
             CREATE TABLE IF NOT EXISTS channels (
                 username        TEXT PRIMARY KEY,
-                added_at        DATETIME DEFAULT (datetime('now')),
+                added_at        DATETIME DEFAULT (datetime('now', '+7 hours')),
                 last_crawled_at DATETIME,
                 total_crawls    INTEGER DEFAULT 0,
                 total_extracted INTEGER DEFAULT 0,
                 total_skipped   INTEGER DEFAULT 0,
                 total_failed    INTEGER DEFAULT 0,
                 is_active       INTEGER DEFAULT 1
+            );
+
+            CREATE TABLE IF NOT EXISTS provinces (
+                province_code TEXT PRIMARY KEY,
+                province_kh   TEXT,
+                province_en   TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS geo_districts (
+                district_code TEXT PRIMARY KEY,
+                province_code TEXT REFERENCES provinces(province_code),
+                district_kh   TEXT,
+                district_en   TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS property_profiles (
@@ -110,7 +385,7 @@ def init_db():
                 amenities_summary   TEXT,
                 description         TEXT,
 
-                researched_at       DATETIME DEFAULT (datetime('now')),
+                researched_at       DATETIME DEFAULT (datetime('now', '+7 hours')),
                 research_confidence REAL,
                 needs_review        INTEGER DEFAULT 0
             );
@@ -120,6 +395,7 @@ def init_db():
         logger.info("Database initialised.")
     finally:
         conn.close()
+    seed_geo_tables()
 
 
 # ── Raw listings ──────────────────────────────────────────────────────────────
@@ -192,15 +468,17 @@ def insert_listing(listing_id, listing_hash, data, posted_at=None):
         conn.execute(
             """INSERT INTO listings (
                 id, listing_hash, posted_at,
-                property_name, borey_name, unit_code, city, district, landmark,
+                property_type, property_name, borey_name, unit_code,
+                city, district, landmark,
                 room_type, floor, furnished_status,
                 rent_usd, management_fee_usd, electricity_per_kwh, water_per_m3,
                 car_parking_usd, motor_parking_usd,
                 amenities_included, amenities_excluded,
                 extraction_confidence, needs_review
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 listing_id, listing_hash, posted_at,
+                data.get("property_type"),
                 data.get("property_name"),
                 data.get("borey_name"),
                 data.get("unit_code"),
@@ -223,7 +501,7 @@ def insert_listing(listing_id, listing_hash, data, posted_at=None):
             ),
         )
         conn.execute(
-            "UPDATE raw_listings SET is_processed = 1, processed_at = datetime('now') WHERE listing_hash = ?",
+            "UPDATE raw_listings SET is_processed = 1, processed_at = datetime('now', '+7 hours') WHERE listing_hash = ?",
             (listing_hash,),
         )
         conn.commit()
@@ -358,7 +636,7 @@ def insert_property_profile(building_key, canonical_listing_id, data):
                 building_type       = excluded.building_type,
                 amenities_summary   = excluded.amenities_summary,
                 description         = excluded.description,
-                researched_at       = datetime('now'),
+                researched_at       = datetime('now', '+7 hours'),
                 research_confidence = excluded.research_confidence,
                 needs_review        = excluded.needs_review
             """,
@@ -407,9 +685,9 @@ def update_channel_stats(username, extracted, skipped, failed, pages=None):
     try:
         conn.execute(
             """INSERT INTO channels (username, last_crawled_at, total_crawls, total_extracted, total_skipped, total_failed, default_pages)
-               VALUES (?, datetime('now'), 1, ?, ?, ?, COALESCE(?, 3))
+               VALUES (?, datetime('now', '+7 hours'), 1, ?, ?, ?, COALESCE(?, 3))
                ON CONFLICT(username) DO UPDATE SET
-                   last_crawled_at = datetime('now'),
+                   last_crawled_at = datetime('now', '+7 hours'),
                    total_crawls    = total_crawls + 1,
                    total_extracted = total_extracted + excluded.total_extracted,
                    total_skipped   = total_skipped  + excluded.total_skipped,

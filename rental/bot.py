@@ -12,6 +12,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Con
 from . import db
 from . import extractor
 from . import crawler
+from . import normalizer
 from .config import settings
 
 logger = logging.getLogger(__name__)
@@ -147,6 +148,31 @@ async def crawl_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"❌ Crawl failed: {e}")
 
 
+async def fixcity_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /fixcity        — dry-run, show how many would be corrected
+    /fixcity apply  — apply corrections to the database
+    """
+    apply = len(context.args) > 0 and context.args[0].lower() == "apply"
+    loop = asyncio.get_event_loop()
+    try:
+        count = await loop.run_in_executor(None, lambda: normalizer.fix_city(apply=apply))
+        if apply:
+            await update.message.reply_text(
+                f"✅ City fix applied — {count} listing(s) updated to Siem Reap."
+                if count else "✅ No city corrections needed."
+            )
+        else:
+            await update.message.reply_text(
+                f"🔍 Dry run — {count} listing(s) would be updated to Siem Reap.\n"
+                f"Run /fixcity apply to write changes."
+                if count else "✅ No city corrections needed."
+            )
+    except Exception as e:
+        logger.error("fixcity failed: %s", e)
+        await update.message.reply_text(f"❌ Fix failed: {e}")
+
+
 async def _scheduled_crawl(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Scheduled crawl starting (every %dh)...", settings.crawl_interval_hours)
     loop = asyncio.get_running_loop()
@@ -170,6 +196,7 @@ def start_bot():
     app = ApplicationBuilder().token(settings.telegram_bot_token).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("crawl", crawl_command))
+    app.add_handler(CommandHandler("fixcity", fixcity_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
     app.job_queue.run_repeating(

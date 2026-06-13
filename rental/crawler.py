@@ -12,6 +12,22 @@ import logging
 import os
 import time
 import uuid
+from datetime import datetime, timezone, timedelta
+
+_KH_TZ = timezone(timedelta(hours=7))
+
+
+def _to_cambodia_time(dt_str):
+    """Convert an ISO datetime string (any tz) to Cambodia local time string."""
+    if not dt_str:
+        return None
+    try:
+        dt = datetime.fromisoformat(dt_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(_KH_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return dt_str
 
 import requests
 from bs4 import BeautifulSoup
@@ -69,7 +85,7 @@ def fetch_messages(channel, before_id=None):
             continue
 
         time_el = post.select_one("time")
-        posted_at = time_el.get("datetime") if time_el else None
+        posted_at = _to_cambodia_time(time_el.get("datetime")) if time_el else None
 
         messages.append({"id": msg_id, "text": text, "posted_at": posted_at})
         if oldest_id is None or msg_id < oldest_id:
