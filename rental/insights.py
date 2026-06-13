@@ -399,14 +399,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14
   </div>
 </div>
 
-<!-- ── PRICING HEATMAP ────────────────────────────────────────────────────── -->
-<div class="sec"><span class="sec-lbl">💰 Pricing Intelligence</span><div class="sec-line"></div></div>
-<div class="card">
-  <div class="card-t">Median Rent Heatmap — District × Room Type</div>
-  <div class="card-s">USD / month &nbsp;·&nbsp; each cell shows median rent and sample size (n)</div>
-  <div id="c-heat" style="height:400px"></div>
-</div>
-
 <!-- ── DEEPER ANALYSIS ────────────────────────────────────────────────────── -->
 <div class="sec"><span class="sec-lbl">🔍 Deeper Analysis</span><div class="sec-line"></div></div>
 <div class="g211">
@@ -617,62 +609,6 @@ function ec(id){ return echarts.init(document.getElementById(id),null,{renderer:
       text:'with data',fill:C.SOFT,font:'11px Inter,sans-serif',
     }}],
   });
-})();
-
-// ── 6. Heatmap ────────────────────────────────────────────────────────────
-(function(){
-  const ch = ec('c-heat');
-  const rooms = D.heatmap.rooms;
-  const dists = D.heatmap.districts;
-  // build full matrix (fill nulls)
-  const full = [];
-  for(let i=0;i<dists.length;i++)
-    for(let j=0;j<rooms.length;j++){
-      const pt = D.heatmap.data.find(d=>d[0]===j&&d[1]===i);
-      full.push(pt ? [j,i,pt[2],pt[3]] : [j,i,null,0]);
-    }
-  ch.setOption({
-    grid: grid(14,100,12,12),
-    tooltip:{...tip, formatter:p=>{
-      if(!p.data[2]) return `${dists[p.data[1]]} / ${rooms[p.data[0]]}<br/>No data`;
-      return `${dists[p.data[1]]} &amp; ${rooms[p.data[0]]}<br/><b>Median $${p.data[2]}</b><br/>n = ${p.data[3]} listings`;
-    }},
-    visualMap:{
-      min:D.heatmap.min, max:D.heatmap.max,
-      calculable:true, orient:'vertical',
-      right:8, top:'middle',
-      inRange:{color:['#EFF6FF','#BFDBFE','#3B82F6','#1D4ED8','#1E3A8A']},
-      textStyle:{color:C.MID,fontSize:10},
-      formatter:v=>'$'+Math.round(v),
-    },
-    xAxis:{type:'category',data:rooms,
-      axisLine:{show:false},axisTick:{show:false},
-      axisLabel:{color:C.DARK,fontWeight:'600',fontSize:12},
-      position:'top',
-    },
-    yAxis:{type:'category',data:dists,
-      axisLine:{show:false},axisTick:{show:false},
-      axisLabel:{color:C.MID,fontSize:10.5},
-    },
-    series:[{
-      type:'heatmap',
-      data: full.filter(d=>d[2]!==null),
-      label:{show:true,
-        formatter:p=>`$${p.data[2]}\nn=${p.data[3]}`,
-        color:null, // overridden below
-        fontSize:11, fontWeight:'600',
-      },
-      emphasis:{itemStyle:{shadowBlur:8,shadowColor:'rgba(0,0,0,.2)'}},
-      itemStyle:{borderRadius:4,borderColor:'#EEF2FF',borderWidth:2},
-    }],
-  });
-  // white label on dark cells
-  const opt = ch.getOption();
-  opt.series[0].label.color = (params)=>{
-    const v = params.data[2];
-    return v > D.heatmap.max*0.55 ? '#fff' : C.DARK;
-  };
-  ch.setOption(opt);
 })();
 
 // ── 7. Furnished premium grouped bar ──────────────────────────────────────
