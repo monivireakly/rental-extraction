@@ -95,31 +95,56 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def crawl_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    /crawl                  — all channels from .env, 1 page each
-    /crawl 5                — all channels, 5 pages each
-    /crawl channelname      — one channel, 1 page
-    /crawl channelname 5    — one channel, 5 pages
+    /crawl channelname      — crawl one channel, 1 page
+    /crawl channelname 5    — crawl one channel, 5 pages
     """
     args = context.args
-    target_channel = None
+
+    if not args or args[0].lstrip("-").isdigit():
+        await update.message.reply_text(
+            "Usage: /crawl <channelname> [pages]\n"
+            "To crawl all channels use /crawlall"
+        )
+        return
+
+    channel = args[0].lstrip("@")
     pages = 1
+    if len(args) >= 2 and args[1].lstrip("-").isdigit():
+        pages = max(1, min(int(args[1]), 20))
 
-    if len(args) >= 1:
-        if args[0].lstrip("-").isdigit():
-            pages = max(1, min(int(args[0]), 20))
-        else:
-            target_channel = args[0].lstrip("@")
-            if len(args) >= 2 and args[1].lstrip("-").isdigit():
-                pages = max(1, min(int(args[1]), 20))
+    channels = [{"username": channel, "pages": pages}]
+    msg = await update.message.reply_text(f"🔄 Crawling @{channel} ({pages}p)...")
 
-    if target_channel:
-        channels = [{"username": target_channel, "pages": pages}]
-    else:
-        channels = crawler.get_channels()
+    loop = asyncio.get_event_loop()
+    try:
+        results = await loop.run_in_executor(
+            None, partial(crawler.crawl_all, channels, pages)
+        )
+        r = results[0]
+        await msg.edit_text(
+            f"✅ @{channel} done\n"
+            f"  📥 {r['processed']} extracted  "
+            f"⏭ {r['skipped']} skipped  "
+            f"❌ {r['failed']} failed"
+        )
+    except Exception as e:
+        logger.error("Crawl command failed: %s", e)
+        await msg.edit_text(f"❌ Crawl failed: {e}")
+
+
+async def crawlall_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /crawlall       — crawl all registered channels, default pages each
+    /crawlall 5     — crawl all channels, 5 pages each
+    """
+    args = context.args
+    pages = None
+    if args and args[0].lstrip("-").isdigit():
+        pages = max(1, min(int(args[0]), 20))
+
+    channels = crawler.get_channels()
     channel_list = "  ".join(f"@{c['username']}" for c in channels)
-    msg = await update.message.reply_text(
-        f"🔄 Crawling {channel_list}..."
-    )
+    msg = await update.message.reply_text(f"🔄 Crawling all channels: {channel_list}...")
 
     loop = asyncio.get_event_loop()
     try:
@@ -144,7 +169,7 @@ async def crawl_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines.append(f"\nTotal: {total_p} extracted  {total_s} skipped  {total_f} failed")
         await msg.edit_text("\n".join(lines))
     except Exception as e:
-        logger.error("Crawl command failed: %s", e)
+        logger.error("Crawlall command failed: %s", e)
         await msg.edit_text(f"❌ Crawl failed: {e}")
 
 
@@ -196,13 +221,14 @@ def start_bot():
     app = ApplicationBuilder().token(settings.telegram_bot_token).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("crawl", crawl_command))
+    app.add_handler(CommandHandler("crawlall", crawlall_command))
     app.add_handler(CommandHandler("fixcity", fixcity_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(error_handler)
     app.job_queue.run_repeating(
         _scheduled_crawl,
         interval=timedelta(hours=settings.crawl_interval_hours),
-        first=timedelta(seconds=30),
+        first=timedelta(hours=settings.crawl_interval_hours),
         name="scheduled_crawl",
     )
     logger.info(
