@@ -550,8 +550,8 @@ def _record_price_if_changed(listing_id, listing_hash, data):
         return
 
     property_key = _make_property_key(data)
-    if not property_key.replace("|", "").strip():
-        return  # not enough info to identify the property
+    if not (data.get("property_name") or "").strip():
+        return  # property_name required — keys like |||1br conflate unrelated listings
 
     conn = get_connection()
     try:
